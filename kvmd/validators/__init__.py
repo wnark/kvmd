@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -52,7 +52,7 @@ def raise_error(arg: Any, name: str, hide: bool=False) -> NoReturn:
 
 def check_not_none(arg: Any, name: str) -> Any:
     if arg is None:
-        raise ValidatorError(f"Empty argument is not a valid {name}")
+        raise ValidatorError(f"None argument is not a valid {name}")
     return arg
 
 

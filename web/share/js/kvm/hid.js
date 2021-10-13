@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -26,24 +26,21 @@
 import {tools, $, $$$} from "../tools.js";
 import {wm} from "../wm.js";
 
-import {Recorder} from "./recorder.js";
 import {Keyboard} from "./keyboard.js";
 import {Mouse} from "./mouse.js";
 
 
-export function Hid() {
+export function Hid(__getResolution, __recorder) {
 	var self = this;
 
 	/************************************************************************/
 
-	var __recorder = null;
 	var __keyboard = null;
 	var __mouse = null;
 
 	var __init__ = function() {
-		__recorder = new Recorder();
 		__keyboard = new Keyboard(__recorder.recordWsEvent);
-		__mouse = new Mouse(__recorder.recordWsEvent);
+		__mouse = new Mouse(__getResolution, __recorder.recordWsEvent);
 
 		let hidden_attr = null;
 		let visibility_change_attr = null;
@@ -74,25 +71,30 @@ export function Hid() {
 		window.addEventListener("pagehide", __releaseAll);
 		window.addEventListener("blur", __releaseAll);
 
-		tools.setOnClick($("hid-pak-button"), __clickPasteAsKeysButton);
-		tools.setOnClick($("hid-connect-switch"), __clickConnectSwitch);
-		tools.setOnClick($("hid-reset-button"), __clickResetButton);
+		tools.storage.bindSimpleSwitch($("hid-pak-ask-switch"), "hid.pak.ask", true);
+
+		$("hid-pak-keymap-selector").addEventListener("change", function() {
+			tools.storage.set("hid.pak.keymap", $("hid-pak-keymap-selector").value);
+		});
+
+		tools.el.setOnClick($("hid-pak-button"), __clickPasteAsKeysButton);
+		tools.el.setOnClick($("hid-connect-switch"), __clickConnectSwitch);
+		tools.el.setOnClick($("hid-reset-button"), __clickResetButton);
 
 		for (let el_shortcut of $$$("[data-shortcut]")) {
-			tools.setOnClick(el_shortcut, () => __emitShortcut(el_shortcut.getAttribute("data-shortcut").split(" ")));
+			tools.el.setOnClick(el_shortcut, () => __emitShortcut(el_shortcut.getAttribute("data-shortcut").split(" ")));
 		}
 	};
 
 	/************************************************************************/
 
 	self.setSocket = function(ws) {
-		wm.setElementEnabled($("hid-pak-text"), ws);
-		wm.setElementEnabled($("hid-pak-button"), ws);
-		wm.setElementEnabled($("hid-reset-button"), ws);
+		tools.el.setEnabled($("hid-pak-text"), ws);
+		tools.el.setEnabled($("hid-pak-button"), ws);
+		tools.el.setEnabled($("hid-reset-button"), ws);
 		if (!ws) {
 			self.setState(null);
 		}
-		__recorder.setSocket(ws);
 		__keyboard.setSocket(ws);
 		__mouse.setSocket(ws);
 	};
@@ -103,58 +105,64 @@ export function Hid() {
 		if (state && state.online) {
 			let keyboard_outputs = state.keyboard.outputs.available;
 			let mouse_outputs = state.mouse.outputs.available;
-			let has_outputs = (keyboard_outputs.length || mouse_outputs.length);
-			let has_relative = false;
-			if (has_outputs) {
-				if ($("hid-outputs-keyboard").outputs !== keyboard_outputs) {
+			if (keyboard_outputs.length) {
+				if ($("hid-outputs-keyboard-box").outputs !== keyboard_outputs) {
 					let html = "";
 					for (let args of [
 						["USB", "usb"],
 						["PS/2", "ps2"],
-						["Off", ""],
+						["Off", "disabled"],
 					]) {
-						if (keyboard_outputs.includes(args[1]) || !args[1]) {
-							html += tools.radioMakeItem("hid-outputs-keyboard-radio", args[0], args[1]);
+						if (keyboard_outputs.includes(args[1])) {
+							html += tools.radio.makeItem("hid-outputs-keyboard-radio", args[0], args[1]);
 						}
 					}
-					$("hid-outputs-keyboard").innerHTML = html;
-					$("hid-outputs-keyboard").outputs = keyboard_outputs;
-					tools.radioSetOnClick("hid-outputs-keyboard-radio", () => __clickOutputsRadio("keyboard"));
+					$("hid-outputs-keyboard-box").innerHTML = html;
+					$("hid-outputs-keyboard-box").outputs = keyboard_outputs;
+					tools.radio.setOnClick("hid-outputs-keyboard-radio", () => __clickOutputsRadio("keyboard"));
 				}
-				if ($("hid-outputs-mouse").outputs !== mouse_outputs) {
+				tools.radio.setValue("hid-outputs-keyboard-radio", state.keyboard.outputs.active);
+			}
+			let has_relative = false;
+			if (mouse_outputs.length) {
+				if ($("hid-outputs-mouse-box").outputs !== mouse_outputs) {
 					let html = "";
 					for (let args of [
 						["USB", "usb", false],
+						["USB Win98", "usb_win98", false],
 						["USB Relative", "usb_rel", true],
 						["PS/2", "ps2", true],
-						["Off", ""],
+						["Off", "disabled"],
 					]) {
-						if (mouse_outputs.includes(args[1]) || !args[1]) {
-							html += tools.radioMakeItem("hid-outputs-mouse-radio", args[0], args[1]);
+						if (mouse_outputs.includes(args[1])) {
+							html += tools.radio.makeItem("hid-outputs-mouse-radio", args[0], args[1]);
 							has_relative = (has_relative || args[2]);
 						}
 					}
-					$("hid-outputs-mouse").innerHTML = html;
-					$("hid-outputs-mouse").outputs = mouse_outputs;
-					tools.radioSetOnClick("hid-outputs-mouse-radio", () => __clickOutputsRadio("mouse"));
+					$("hid-outputs-mouse-box").innerHTML = html;
+					$("hid-outputs-mouse-box").outputs = mouse_outputs;
+					tools.radio.setOnClick("hid-outputs-mouse-radio", () => __clickOutputsRadio("mouse"));
 				}
-				tools.radioSetValue("hid-outputs-keyboard-radio", state.keyboard.outputs.active);
-				tools.radioSetValue("hid-outputs-mouse-radio", state.mouse.outputs.active);
+				tools.radio.setValue("hid-outputs-mouse-radio", state.mouse.outputs.active);
 				has_relative_squash = ["usb_rel", "ps2"].includes(state.mouse.outputs.active);
 			} else {
 				has_relative = !state.mouse.absolute;
 				has_relative_squash = has_relative;
 			}
-			tools.featureSetEnabled($("hid-outputs"), has_outputs);
-			tools.featureSetEnabled($("hid-mouse-squash"), has_relative);
-			tools.featureSetEnabled($("hid-connect"), (state.connected !== null));
+			tools.feature.setEnabled($("hid-outputs"), (keyboard_outputs.length || mouse_outputs.length));
+			tools.feature.setEnabled($("hid-outputs-keyboard"), keyboard_outputs.length);
+			tools.feature.setEnabled($("hid-outputs-mouse"), mouse_outputs.length);
+			tools.feature.setEnabled($("hid-mouse-squash"), has_relative);
+			tools.feature.setEnabled($("hid-mouse-sens"), has_relative);
+			tools.feature.setEnabled($("hid-connect"), (state.connected !== null));
 			$("hid-connect-switch").checked = !!state.connected;
 		}
 
-		wm.setRadioEnabled("hid-outputs-keyboard-radio", (state && state.online && !state.busy));
-		wm.setRadioEnabled("hid-outputs-mouse-radio", (state && state.online && !state.busy));
-		wm.setElementEnabled($("hid-mouse-squash-switch"), (has_relative_squash && !state.busy));
-		wm.setElementEnabled($("hid-connect-switch"), (state && state.online && !state.busy));
+		tools.radio.setEnabled("hid-outputs-keyboard-radio", (state && state.online && !state.busy));
+		tools.radio.setEnabled("hid-outputs-mouse-radio", (state && state.online && !state.busy));
+		tools.el.setEnabled($("hid-mouse-squash-switch"), (has_relative_squash && !state.busy));
+		tools.el.setEnabled($("hid-mouse-sens-slider"), (has_relative_squash && !state.busy));
+		tools.el.setEnabled($("hid-connect-switch"), (state && state.online && !state.busy));
 
 		if (state) {
 			__keyboard.setState(state.keyboard, state.online, state.busy);
@@ -163,9 +171,10 @@ export function Hid() {
 	};
 
 	self.setKeymaps = function(state) {
+		let selected = tools.storage.get("hid.pak.keymap", state.keymaps["default"]);
 		let html = "";
 		for (let variant of state.keymaps.available) {
-			html += `<option value=${variant} ${variant === state.keymaps.default ? "selected" : ""}>${variant}</option>`;
+			html += `<option value=${variant} ${variant === selected ? "selected" : ""}>${variant}</option>`;
 		}
 		$("hid-pak-keymap-selector").innerHTML = html;
 	};
@@ -196,18 +205,18 @@ export function Hid() {
 				} else {
 					resolve(null);
 				}
-			}, 50);
+			}, 100);
 			iterate();
 		});
 	};
 
 	var __clickPasteAsKeysButton = function() {
-		let text = $("hid-pak-text").value.replace(/[^\x00-\x7F]/g, "");  // eslint-disable-line no-control-regex
+		let text = $("hid-pak-text").value;
 		if (text) {
 			let paste_as_keys = function() {
-				wm.setElementEnabled($("hid-pak-text"), false);
-				wm.setElementEnabled($("hid-pak-button"), false);
-				wm.setElementEnabled($("hid-pak-keymap-selector"), false);
+				tools.el.setEnabled($("hid-pak-text"), false);
+				tools.el.setEnabled($("hid-pak-button"), false);
+				tools.el.setEnabled($("hid-pak-keymap-selector"), false);
 
 				let keymap = $("hid-pak-keymap-selector").value;
 
@@ -215,9 +224,9 @@ export function Hid() {
 
 				let http = tools.makeRequest("POST", `/api/hid/print?limit=0&keymap=${keymap}`, function() {
 					if (http.readyState === 4) {
-						wm.setElementEnabled($("hid-pak-text"), true);
-						wm.setElementEnabled($("hid-pak-button"), true);
-						wm.setElementEnabled($("hid-pak-keymap-selector"), true);
+						tools.el.setEnabled($("hid-pak-text"), true);
+						tools.el.setEnabled($("hid-pak-button"), true);
+						tools.el.setEnabled($("hid-pak-keymap-selector"), true);
 						$("hid-pak-text").value = "";
 						if (http.status === 413) {
 							wm.error("Too many text for paste!");
@@ -247,7 +256,7 @@ export function Hid() {
 	};
 
 	var __clickOutputsRadio = function(hid) {
-		let output = tools.radioGetValue(`hid-outputs-${hid}-radio`);
+		let output = tools.radio.getValue(`hid-outputs-${hid}-radio`);
 		let http = tools.makeRequest("POST", `/api/hid/set_params?${hid}_output=${output}`, function() {
 			if (http.readyState === 4) {
 				if (http.status !== 200) {

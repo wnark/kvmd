@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -29,10 +29,10 @@ import dataclasses
 from typing import IO
 from typing import Optional
 
-import aiofiles.base
-
 from .... import aiotools
 from .... import aiofs
+
+from .. import MsdImageWriter
 
 
 # =====
@@ -121,15 +121,15 @@ class DeviceInfo:
             image=image_info,
         )
 
-    async def write_image_info(
-        self,
-        device_file: aiofiles.base.AiofilesContextManager,
-        image_info: ImageInfo,
-    ) -> bool:
+    async def write_image_info(self, device_writer: MsdImageWriter, complete: bool) -> bool:
+        device_file = device_writer.get_file()
+        state = device_writer.get_state()
+        image_info = ImageInfo(state["name"], state["written"], complete)
 
         if self.size - image_info.size > _IMAGE_INFO_SIZE:
             await device_file.seek(self.size - _IMAGE_INFO_SIZE)  # type: ignore
-            await aiofs.afile_write_now(device_file, image_info.to_bytes())
+            await device_file.write(image_info.to_bytes())  # type: ignore
+            await aiofs.afile_sync(device_file)
             await device_file.seek(0)  # type: ignore
             return True
         return False  # Device is full

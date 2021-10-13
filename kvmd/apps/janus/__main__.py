@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -20,27 +20,5 @@
 # ========================================================================== #
 
 
-from aiohttp.web import Request
-from aiohttp.web import Response
-
-from ..wol import WakeOnLan
-
-from ..http import exposed_http
-from ..http import make_json_response
-
-
-# =====
-class WolApi:
-    def __init__(self, wol: WakeOnLan) -> None:
-        self.__wol = wol
-
-    # =====
-
-    @exposed_http("GET", "/wol")
-    async def __state_handler(self, _: Request) -> Response:
-        return make_json_response(await self.__wol.get_state())
-
-    @exposed_http("POST", "/wol/wakeup")
-    async def __wakeup_handler(self, _: Request) -> Response:
-        await self.__wol.wakeup()
-        return make_json_response()
+from . import main
+main()

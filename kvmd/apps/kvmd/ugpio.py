@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -77,7 +77,7 @@ class _GpioInput:
     ) -> None:
 
         self.__channel = channel
-        self.__pin: int = config.pin
+        self.__pin: str = str(config.pin)
         self.__inverted: bool = config.inverted
 
         self.__driver = driver
@@ -118,7 +118,7 @@ class _GpioOutput:  # pylint: disable=too-many-instance-attributes
     ) -> None:
 
         self.__channel = channel
-        self.__pin: int = config.pin
+        self.__pin: str = str(config.pin)
         self.__inverted: bool = config.inverted
 
         self.__switch: bool = config.switch
@@ -295,7 +295,7 @@ class UserGpio:
     async def cleanup(self) -> None:
         for driver in self.__drivers.values():
             try:
-                driver.cleanup()
+                await driver.cleanup()
             except Exception:
                 get_logger().exception("Can't cleanup driver %s", driver)
 

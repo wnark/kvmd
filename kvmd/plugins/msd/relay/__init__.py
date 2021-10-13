@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -23,22 +23,20 @@
 import asyncio
 import contextlib
 import dataclasses
+import functools
 
 from typing import Dict
 from typing import AsyncGenerator
 from typing import Optional
 
-import aiofiles
-import aiofiles.base
-
 from ....logging import get_logger
 
 from .... import aiotools
-from .... import aiofs
 
 from ....yamlconf import Option
 
 from ....validators.basic import valid_bool
+from ....validators.basic import valid_number
 from ....validators.basic import valid_int_f1
 from ....validators.basic import valid_float_f01
 from ....validators.os import valid_abs_path
@@ -52,17 +50,20 @@ from .. import MsdDisconnectedError
 from .. import MsdMultiNotSupported
 from .. import MsdCdromNotSupported
 from .. import BaseMsd
+from .. import MsdImageWriter
 
 from .gpio import Gpio
 
-from .drive import ImageInfo
 from .drive import DeviceInfo
 
 
 # =====
 class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
-    def __init__(  # pylint: disable=super-init-not-called
+    def __init__(  # pylint: disable=super-init-not-called,too-many-arguments
         self,
+        upload_chunk_size: int,
+        sync_chunk_size: int,
+
         gpio_device_path: str,
         target_pin: int,
         reset_inverted: bool,
@@ -74,6 +75,9 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
         reset_delay: float,
     ) -> None:
 
+        self.__upload_chunk_size = upload_chunk_size
+        self.__sync_chunk_size = sync_chunk_size
+
         self.__device_path = device_path
         self.__init_delay = init_delay
         self.__init_retries = init_retries
@@ -83,8 +87,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
         self.__device_info: Optional[DeviceInfo] = None
         self.__connected = False
 
-        self.__device_file: Optional[aiofiles.base.AiofilesContextManager] = None
-        self.__written = 0
+        self.__device_writer: Optional[MsdImageWriter] = None
 
         self.__notifier = aiotools.AioNotifier()
         self.__region = aiotools.AioExclusiveRegion(MsdIsBusyError, self.__notifier)
@@ -92,9 +95,12 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
     @classmethod
     def get_plugin_options(cls) -> Dict:
         return {
+            "upload_chunk_size": Option(65536,   type=functools.partial(valid_number, min=1024)),
+            "sync_chunk_size":   Option(4194304, type=functools.partial(valid_number, min=1024)),
+
             "gpio_device":    Option("/dev/gpiochip0", type=valid_abs_path, unpack_as="gpio_device_path"),
-            "target_pin":     Option(-1, type=valid_gpio_pin),
-            "reset_pin":      Option(-1, type=valid_gpio_pin),
+            "target_pin":     Option(-1,    type=valid_gpio_pin),
+            "reset_pin":      Option(-1,    type=valid_gpio_pin),
             "reset_inverted": Option(False, type=valid_bool),
 
             "device":       Option("",  type=valid_abs_path, unpack_as="device_path"),
@@ -120,7 +126,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
             storage = {
                 "size": self.__device_info.size,
                 "free": self.__device_info.free,
-                "uploading": bool(self.__device_file)
+                "uploading": (self.__device_writer.get_state() if self.__device_writer else None),
             }
             drive = {
                 "image": (self.__device_info.image and dataclasses.asdict(self.__device_info.image)),
@@ -165,7 +171,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
     @aiotools.atomic
     async def cleanup(self) -> None:
         try:
-            await self.__close_device_file()
+            await self.__close_device_writer()
         finally:
             self.__gpio.close()
 
@@ -202,7 +208,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
                 self.__connected = connected
 
     @contextlib.asynccontextmanager
-    async def write_image(self, name: str) -> AsyncGenerator[None, None]:
+    async def write_image(self, name: str, size: int) -> AsyncGenerator[int, None]:
         async with self.__working():
             async with self.__region:
                 try:
@@ -210,22 +216,19 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
                     if self.__connected:
                         raise MsdConnectedError()
 
-                    self.__device_file = await aiofiles.open(self.__device_info.path, mode="w+b", buffering=0)  # type: ignore
-                    self.__written = 0
+                    self.__device_writer = await MsdImageWriter(self.__device_info.path, size, self.__sync_chunk_size).open()
 
-                    await self.__write_image_info(name, complete=False)
+                    await self.__write_image_info(False)
                     await self.__notifier.notify()
-                    yield
-                    await self.__write_image_info(name, complete=True)
+                    yield self.__upload_chunk_size
+                    await self.__write_image_info(True)
                 finally:
-                    await self.__close_device_file()
+                    await self.__close_device_writer()
                     await self.__load_device_info()
 
     async def write_image_chunk(self, chunk: bytes) -> int:
-        assert self.__device_file
-        await aiofs.afile_write_now(self.__device_file, chunk)
-        self.__written += len(chunk)
-        return self.__written
+        assert self.__device_writer
+        return (await self.__device_writer.write(chunk))
 
     @aiotools.atomic
     async def remove(self, name: str) -> None:
@@ -242,25 +245,21 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
 
     # =====
 
-    async def __write_image_info(self, name: str, complete: bool) -> None:
-        assert self.__device_file
+    async def __write_image_info(self, complete: bool) -> None:
+        assert self.__device_writer
         assert self.__device_info
-        if not (await self.__device_info.write_image_info(
-            device_file=self.__device_file,
-            image_info=ImageInfo(name, self.__written, complete),
-        )):
+        if not (await self.__device_info.write_image_info(self.__device_writer, complete)):
             get_logger().error("Can't write image info because device is full")
 
-    async def __close_device_file(self) -> None:
+    async def __close_device_writer(self) -> None:
         try:
-            if self.__device_file:
+            if self.__device_writer:
                 get_logger().info("Closing device file ...")
-                await self.__device_file.close()  # type: ignore
+                await self.__device_writer.close()  # type: ignore
         except Exception:
             get_logger().exception("Can't close device file")
         finally:
-            self.__device_file = None
-            self.__written = 0
+            self.__device_writer = None
 
     async def __load_device_info(self) -> None:
         retries = self.__init_retries

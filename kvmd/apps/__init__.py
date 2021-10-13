@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -30,7 +30,7 @@ import logging.config
 from typing import Tuple
 from typing import List
 from typing import Dict
-from typing import Set
+from typing import Type
 from typing import Optional
 
 import pygments
@@ -48,6 +48,7 @@ from ..plugins.atx import get_atx_class
 from ..plugins.msd import get_msd_class
 
 from ..plugins.ugpio import UserGpioModes
+from ..plugins.ugpio import BaseUserGpioDriver
 from ..plugins.ugpio import get_ugpio_driver_class
 
 from ..yamlconf import ConfigError
@@ -63,6 +64,7 @@ from ..validators.basic import valid_stripped_string
 from ..validators.basic import valid_stripped_string_not_empty
 from ..validators.basic import valid_bool
 from ..validators.basic import valid_number
+from ..validators.basic import valid_int_f0
 from ..validators.basic import valid_int_f1
 from ..validators.basic import valid_float_f0
 from ..validators.basic import valid_float_f01
@@ -79,7 +81,6 @@ from ..validators.os import valid_options
 from ..validators.os import valid_command
 
 from ..validators.net import valid_ip_or_host
-from ..validators.net import valid_ip
 from ..validators.net import valid_net
 from ..validators.net import valid_port
 from ..validators.net import valid_ports_list
@@ -101,7 +102,6 @@ from ..validators.ugpio import valid_ugpio_mode
 from ..validators.ugpio import valid_ugpio_view_table
 
 from ..validators.hw import valid_tty_speed
-from ..validators.hw import valid_gpio_pin
 from ..validators.hw import valid_otg_gadget
 from ..validators.hw import valid_otg_id
 from ..validators.hw import valid_otg_ethernet
@@ -183,7 +183,7 @@ def _init_config(config_path: str, override_options: List[str], **load_flags: bo
         raise SystemExit(f"ConfigError: {err}")
 
 
-def _patch_raw(raw_config: Dict) -> None:
+def _patch_raw(raw_config: Dict) -> None:  # pylint: disable=too-many-branches
     if isinstance(raw_config.get("otg"), dict):
         for (old, new) in [
             ("msd", "msd"),
@@ -194,6 +194,23 @@ def _patch_raw(raw_config: Dict) -> None:
                 if not isinstance(raw_config["otg"].get("devices"), dict):
                     raw_config["otg"]["devices"] = {}
                 raw_config["otg"]["devices"][new] = raw_config["otg"].pop(old)
+
+    if isinstance(raw_config.get("kvmd"), dict) and isinstance(raw_config["kvmd"].get("wol"), dict):
+        if not isinstance(raw_config["kvmd"].get("gpio"), dict):
+            raw_config["kvmd"]["gpio"] = {}
+        for section in ["drivers", "scheme"]:
+            if not isinstance(raw_config["kvmd"]["gpio"].get(section), dict):
+                raw_config["kvmd"]["gpio"][section] = {}
+        raw_config["kvmd"]["gpio"]["drivers"]["__wol__"] = {
+            "type": "wol",
+            **raw_config["kvmd"].pop("wol"),
+        }
+        raw_config["kvmd"]["gpio"]["scheme"]["__wol__"] = {
+            "driver": "__wol__",
+            "pin": 0,
+            "mode": "output",
+            "switch": False,
+        }
 
     if isinstance(raw_config.get("kvmd"), dict) and isinstance(raw_config["kvmd"].get("streamer"), dict):
         streamer_config = raw_config["kvmd"]["streamer"]
@@ -251,7 +268,7 @@ def _patch_dynamic(  # pylint: disable=too-many-locals
 
     if load_gpio:
         driver: str
-        drivers: Dict[str, Set[str]] = {}  # Name to modes
+        drivers: Dict[str, Type[BaseUserGpioDriver]] = {}  # Name to drivers
         for (driver, params) in {  # type: ignore
             "__gpio__": {},
             **tools.rget(raw_config, "kvmd", "gpio", "drivers"),
@@ -261,7 +278,7 @@ def _patch_dynamic(  # pylint: disable=too-many-locals
 
             driver_type = valid_stripped_string_not_empty(params.get("type", "gpio"))
             driver_class = get_ugpio_driver_class(driver_type)
-            drivers[driver] = driver_class.get_modes()
+            drivers[driver] = driver_class
             scheme["kvmd"]["gpio"]["drivers"][driver] = {
                 "type": Option(driver_type, type=valid_stripped_string_not_empty),
                 **driver_class.get_plugin_options()
@@ -278,17 +295,17 @@ def _patch_dynamic(  # pylint: disable=too-many-locals
 
             mode: str = params.get("mode", "")
             with manual_validated(mode, *path, channel, "mode"):
-                mode = valid_ugpio_mode(mode, drivers[driver])
+                mode = valid_ugpio_mode(mode, drivers[driver].get_modes())
 
             scheme["kvmd"]["gpio"]["scheme"][channel] = {
                 "driver":   Option("__gpio__", type=functools.partial(valid_ugpio_driver, variants=set(drivers))),
-                "pin":      Option(-1, type=valid_gpio_pin),
-                "mode":     Option("", type=functools.partial(valid_ugpio_mode, variants=drivers[driver])),
-                "inverted": Option(False, type=valid_bool),
+                "pin":      Option(None,       type=drivers[driver].get_pin_validator()),
+                "mode":     Option("",         type=functools.partial(valid_ugpio_mode, variants=drivers[driver].get_modes())),
+                "inverted": Option(False,      type=valid_bool),
                 **({
-                    "busy_delay": Option(0.2, type=valid_float_f01),
+                    "busy_delay": Option(0.2,   type=valid_float_f01),
                     "initial":    Option(False, type=(lambda arg: (valid_bool(arg) if arg is not None else None))),
-                    "switch":     Option(True, type=valid_bool),
+                    "switch":     Option(True,  type=valid_bool),
                     "pulse": {  # type: ignore
                         "delay":     Option(0.1, type=valid_float_f0),
                         "min_delay": Option(0.1, type=valid_float_f01),
@@ -315,10 +332,6 @@ def _dump_config(config: Section) -> None:
     print(dump)
 
 
-def _make_ifarg(validator, unless):  # type: ignore
-    return (lambda arg: (validator(arg) if arg else unless))
-
-
 def _get_config_scheme() -> Dict:
     return {
         "logging": Option({}),
@@ -331,7 +344,6 @@ def _get_config_scheme() -> Dict:
                 "unix_rm":           Option(True,  type=valid_bool),
                 "unix_mode":         Option(0o660, type=valid_unix_mode),
                 "heartbeat":         Option(15.0,  type=valid_float_f01),
-                "sync_chunk_size":   Option(65536, type=functools.partial(valid_number, min=1024)),
                 "access_log_format": Option("[%P / %{X-Real-IP}i] '%r' => %s; size=%b ---"
                                             " referer='%{Referer}i'; user_agent='%{User-Agent}i'"),
             },
@@ -340,7 +352,7 @@ def _get_config_scheme() -> Dict:
                 "enabled": Option(True, type=valid_bool),
 
                 "internal": {
-                    "type":  Option("htpasswd"),
+                    "type":        Option("htpasswd"),
                     "force_users": Option([], type=valid_users_list),
                     # Dynamic content
                 },
@@ -360,22 +372,16 @@ def _get_config_scheme() -> Dict:
                 },
             },
 
-            "wol": {
-                "ip":   Option("255.255.255.255", type=functools.partial(valid_ip, v6=False)),
-                "port": Option(9, type=valid_port),
-                "mac":  Option("", type=_make_ifarg(valid_mac, "")),
-            },
-
             "hid": {
                 "type": Option("", type=valid_stripped_string_not_empty),
 
-                "keymap": Option("/usr/share/kvmd/keymaps/en-us", type=valid_abs_file),
+                "keymap":      Option("/usr/share/kvmd/keymaps/en-us", type=valid_abs_file),
+                "ignore_keys": Option([], type=functools.partial(valid_string_list, subval=valid_hid_key)),
 
                 "mouse_x_range": {
                     "min": Option(MouseRange.MIN, type=valid_hid_mouse_move),
                     "max": Option(MouseRange.MAX, type=valid_hid_mouse_move),
                 },
-
                 "mouse_y_range": {
                     "min": Option(MouseRange.MIN, type=valid_hid_mouse_move),
                     "max": Option(MouseRange.MAX, type=valid_hid_mouse_move),
@@ -401,10 +407,10 @@ def _get_config_scheme() -> Dict:
                 "shutdown_delay": Option(10.0, type=valid_float_f01),
                 "state_poll":     Option(1.0,  type=valid_float_f01),
 
-                "quality": Option(80, type=_make_ifarg(valid_stream_quality, 0)),
+                "quality": Option(80, type=valid_stream_quality, if_empty=0),
 
                 "resolution": {
-                    "default":   Option("", type=_make_ifarg(valid_stream_resolution, ""), unpack_as="resolution"),
+                    "default":   Option("", type=valid_stream_resolution, if_empty="", unpack_as="resolution"),
                     "available": Option(
                         [],
                         type=functools.partial(valid_string_list, subval=valid_stream_resolution),
@@ -419,7 +425,7 @@ def _get_config_scheme() -> Dict:
                 },
 
                 "h264_bitrate": {
-                    "default": Option(0,     type=_make_ifarg(valid_stream_h264_bitrate, 0), unpack_as="h264_bitrate"),
+                    "default": Option(0,     type=valid_stream_h264_bitrate, if_empty=0, unpack_as="h264_bitrate"),
                     "min":     Option(100,   type=valid_stream_h264_bitrate, unpack_as="h264_bitrate_min"),
                     "max":     Option(16000, type=valid_stream_h264_bitrate, unpack_as="h264_bitrate_max"),
                 },
@@ -446,7 +452,7 @@ def _get_config_scheme() -> Dict:
                 "idle_interval": Option(0.0, type=valid_float_f0),
                 "live_interval": Option(0.0, type=valid_float_f0),
 
-                "wakeup_key":  Option("", type=_make_ifarg(valid_hid_key, "")),
+                "wakeup_key":  Option("", type=valid_hid_key, if_empty=""),
                 "wakeup_move": Option(0,  type=valid_hid_mouse_move),
 
                 "online_delay":  Option(5.0, type=valid_float_f0),
@@ -468,15 +474,16 @@ def _get_config_scheme() -> Dict:
         },
 
         "otg": {
-            "vendor_id":    Option(0x1D6B, type=valid_otg_id),  # Linux Foundation
-            "product_id":   Option(0x0104, type=valid_otg_id),  # Multifunction Composite Gadget
-            "manufacturer": Option("Pi-KVM"),
-            "product":      Option("Composite KVM Device"),
-            "serial":       Option("CAFEBABE"),
-            "max_power":    Option(250, type=functools.partial(valid_number, min=0, max=500)),
+            "vendor_id":     Option(0x1D6B, type=valid_otg_id),  # Linux Foundation
+            "product_id":    Option(0x0104, type=valid_otg_id),  # Multifunction Composite Gadget
+            "manufacturer":  Option("PiKVM"),
+            "product":       Option("Composite KVM Device"),
+            "serial":        Option("CAFEBABE"),
+            "usb_version":   Option(0x0200, type=valid_otg_id),
+            "remote_wakeup": Option(False,  type=valid_bool),
 
             "gadget":     Option("kvmd", type=valid_otg_gadget),
-            "config":     Option("Pi-KVM device", type=valid_stripped_string_not_empty),
+            "config":     Option("PiKVM device", type=valid_stripped_string_not_empty),
             "udc":        Option("",     type=valid_stripped_string),
             "init_delay": Option(3.0,    type=valid_float_f01),
 
@@ -500,8 +507,8 @@ def _get_config_scheme() -> Dict:
                 "ethernet": {
                     "enabled":  Option(False, type=valid_bool),
                     "driver":   Option("ecm", type=valid_otg_ethernet),
-                    "host_mac": Option("", type=_make_ifarg(valid_mac, "")),
-                    "kvm_mac":  Option("", type=_make_ifarg(valid_mac, "")),
+                    "host_mac": Option("",    type=valid_mac, if_empty=""),
+                    "kvm_mac":  Option("",    type=valid_mac, if_empty=""),
                 },
 
                 "drives": {
@@ -521,15 +528,15 @@ def _get_config_scheme() -> Dict:
         "otgnet": {
             "iface": {
                 "net":    Option("169.254.0.0/28", type=functools.partial(valid_net, v6=False)),
-                "ip_cmd": Option(["/usr/bin/ip"], type=valid_command),
+                "ip_cmd": Option(["/usr/bin/ip"],  type=valid_command),
             },
 
             "firewall": {
-                "allow_icmp":   Option(True, type=valid_bool),
-                "allow_tcp":    Option([],   type=valid_ports_list),
-                "allow_udp":    Option([67], type=valid_ports_list),
-                "forward_iface": Option("", type=valid_stripped_string),
-                "iptables_cmd": Option(["/usr/bin/iptables", "--wait=5"], type=valid_command),
+                "allow_icmp":    Option(True, type=valid_bool),
+                "allow_tcp":     Option([],   type=valid_ports_list),
+                "allow_udp":     Option([67], type=valid_ports_list),
+                "forward_iface": Option("",   type=valid_stripped_string),
+                "iptables_cmd":  Option(["/usr/sbin/iptables", "--wait=5"], type=valid_command),
             },
 
             "commands": {
@@ -540,7 +547,7 @@ def _get_config_scheme() -> Dict:
                 "post_start_cmd": Option([
                     "/usr/bin/systemd-run",
                     "--unit=kvmd-otgnet-dnsmasq",
-                    "/usr/bin/dnsmasq",
+                    "/usr/sbin/dnsmasq",
                     "--conf-file=/dev/null",
                     "--pid-file",
                     "--user=dnsmasq",
@@ -588,7 +595,7 @@ def _get_config_scheme() -> Dict:
             },
 
             "sol": {
-                "device":         Option("",     type=_make_ifarg(valid_abs_path, ""), unpack_as="sol_device_path"),
+                "device":         Option("",     type=valid_abs_path, if_empty="", unpack_as="sol_device_path"),
                 "speed":          Option(115200, type=valid_tty_speed, unpack_as="sol_speed"),
                 "select_timeout": Option(0.1,    type=valid_float_f01, unpack_as="sol_select_timeout"),
                 "proxy_port":     Option(0,      type=valid_port, unpack_as="sol_proxy_port"),
@@ -607,17 +614,17 @@ def _get_config_scheme() -> Dict:
                 "no_delay": Option(True, type=valid_bool),
                 "keepalive": {
                     "enabled":  Option(True, type=valid_bool, unpack_as="keepalive_enabled"),
-                    "idle":     Option(10, type=functools.partial(valid_number, min=1, max=3600), unpack_as="keepalive_idle"),
-                    "interval": Option(3, type=functools.partial(valid_number, min=1, max=60), unpack_as="keepalive_interval"),
-                    "count":    Option(3, type=functools.partial(valid_number, min=1, max=10), unpack_as="keepalive_count"),
+                    "idle":     Option(10,   type=functools.partial(valid_number, min=1, max=3600), unpack_as="keepalive_idle"),
+                    "interval": Option(3,    type=functools.partial(valid_number, min=1, max=60), unpack_as="keepalive_interval"),
+                    "count":    Option(3,    type=functools.partial(valid_number, min=1, max=10), unpack_as="keepalive_count"),
                 },
 
                 "tls": {
-                    "ciphers": Option("ALL:@SECLEVEL=0", type=_make_ifarg(valid_ssl_ciphers, "")),
+                    "ciphers": Option("ALL:@SECLEVEL=0", type=valid_ssl_ciphers, if_empty=""),
                     "timeout": Option(30.0, type=valid_float_f01),
                     "x509": {
-                        "cert": Option("", type=_make_ifarg(valid_abs_file, "")),
-                        "key":  Option("", type=_make_ifarg(valid_abs_file, "")),
+                        "cert": Option("", type=valid_abs_file, if_empty=""),
+                        "key":  Option("", type=valid_abs_file, if_empty=""),
                     },
                 },
             },
@@ -657,5 +664,38 @@ def _get_config_scheme() -> Dict:
                     "file":    Option("/etc/kvmd/vncpasswd", type=valid_abs_file, unpack_as="path"),
                 },
             },
+        },
+
+        "janus": {
+            "stun": {
+                "host":          Option("stun.l.google.com", type=valid_ip_or_host, unpack_as="stun_host"),
+                "port":          Option(19302, type=valid_port, unpack_as="stun_port"),
+                "timeout":       Option(5.0,   type=valid_float_f01, unpack_as="stun_timeout"),
+                "retries":       Option(5,     type=valid_int_f1, unpack_as="stun_retries"),
+                "retries_delay": Option(5.0,   type=valid_float_f01, unpack_as="stun_retries_delay"),
+            },
+
+            "check": {
+                "interval":      Option(10.0, type=valid_float_f01, unpack_as="check_interval"),
+                "retries":       Option(5,    type=valid_int_f1, unpack_as="check_retries"),
+                "retries_delay": Option(5.0,  type=valid_float_f01, unpack_as="check_retries_delay"),
+            },
+
+            "cmd": Option([
+                "/usr/bin/janus",
+                "--disable-colors",
+                "--plugins-folder=/usr/lib/ustreamer/janus",
+                "--configs-folder=/etc/kvmd/janus",
+                "--interface={src_ip}",
+                "--stun-server={stun_host}:{stun_port}",
+            ], type=valid_command),
+            "cmd_remove": Option([], type=valid_options),
+            "cmd_append": Option([], type=valid_options),
+        },
+
+        "watchdog": {
+            "rtc":      Option(0,   type=valid_int_f0),
+            "timeout":  Option(300, type=valid_int_f1),
+            "interval": Option(30,  type=valid_int_f1),
         },
     }

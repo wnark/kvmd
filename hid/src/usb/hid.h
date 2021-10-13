@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -149,8 +149,13 @@ class UsbMouseAbsolute {
 	public:
 		UsbMouseAbsolute() {}
 
-		void begin() {
+		void begin(bool win98_fix) {
 			_mouse.begin();
+			_mouse.setWin98FixEnabled(win98_fix);
+		}
+
+		bool isWin98FixEnabled() {
+			return _mouse.isWin98FixEnabled();
 		}
 
 		void clear() {

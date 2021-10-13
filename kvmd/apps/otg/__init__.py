@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -38,6 +38,7 @@ from ...yamlconf import Section
 from ...validators import ValidatorError
 
 from ... import env
+from ... import usb
 
 from .. import init
 
@@ -72,8 +73,12 @@ def _unlink(path: str) -> None:
     os.unlink(path)
 
 
-def _write(path: str, text: str) -> None:
-    get_logger().info("WRITE --- %s", path)
+def _write(path: str, text: str, optional: bool=False) -> None:
+    logger = get_logger()
+    if optional and not os.access(path, os.F_OK):
+        logger.info("SKIP ---- %s", path)
+        return
+    logger.info("WRITE --- %s", path)
     with open(path, "w") as param_file:
         param_file.write(text)
 
@@ -82,18 +87,6 @@ def _write_bytes(path: str, data: bytes) -> None:
     get_logger().info("WRITE --- %s", path)
     with open(path, "wb") as param_file:
         param_file.write(data)
-
-
-def _find_udc(udc: str) -> str:
-    candidates = sorted(os.listdir(f"{env.SYSFS_PREFIX}/sys/class/udc"))
-    if not udc:
-        if len(candidates) == 0:
-            raise RuntimeError("Can't find any UDC")
-        udc = candidates[0]
-    elif udc not in candidates:
-        raise RuntimeError(f"Can't find selected UDC: {udc}")
-    get_logger().info("Using UDC %s", udc)
-    return udc
 
 
 def _check_config(config: Section) -> None:
@@ -125,9 +118,12 @@ def _create_ethernet(gadget_path: str, config_path: str, driver: str, host_mac: 
     _symlink(func_path, join(config_path, f"{driver}.usb0"))
 
 
-def _create_hid(gadget_path: str, config_path: str, instance: int, hid: Hid) -> None:
+def _create_hid(gadget_path: str, config_path: str, instance: int, remote_wakeup: bool, hid: Hid) -> None:
     func_path = join(gadget_path, f"functions/hid.usb{instance}")
     _mkdir(func_path)
+    _write(join(func_path, "no_out_endpoint"), "1", optional=True)
+    if remote_wakeup:
+        _write(join(func_path, "wakeup_on_write"), "1", optional=True)
     _write(join(func_path, "protocol"), str(hid.protocol))
     _write(join(func_path, "subclass"), str(hid.subclass))
     _write(join(func_path, "report_length"), str(hid.report_length))
@@ -161,7 +157,7 @@ def _create_msd(
     _symlink(func_path, join(config_path, f"mass_storage.usb{instance}"))
 
 
-def _cmd_start(config: Section) -> None:
+def _cmd_start(config: Section) -> None:  # pylint: disable=too-many-statements
     # https://www.kernel.org/doc/Documentation/usb/gadget_configfs.txt
     # https://www.isticktoit.net/?p=1383
 
@@ -169,16 +165,17 @@ def _cmd_start(config: Section) -> None:
 
     _check_config(config)
 
-    udc = _find_udc(config.otg.udc)
+    (udc, usb_driver) = usb.find_udc(config.otg.udc)
+    logger.info("Using UDC %s", udc)
 
     logger.info("Creating gadget %r ...", config.otg.gadget)
     gadget_path = join(f"{env.SYSFS_PREFIX}/sys/kernel/config/usb_gadget", config.otg.gadget)
     _mkdir(gadget_path)
 
-    _write(join(gadget_path, "idVendor"), f"0x{config.otg.vendor_id:X}")
-    _write(join(gadget_path, "idProduct"), f"0x{config.otg.product_id:X}")
+    _write(join(gadget_path, "idVendor"), f"0x{config.otg.vendor_id:04X}")
+    _write(join(gadget_path, "idProduct"), f"0x{config.otg.product_id:04X}")
     _write(join(gadget_path, "bcdDevice"), "0x0100")
-    _write(join(gadget_path, "bcdUSB"), "0x0200")
+    _write(join(gadget_path, "bcdUSB"), f"0x{config.otg.usb_version:04X}")
 
     lang_path = join(gadget_path, "strings/0x409")
     _mkdir(lang_path)
@@ -190,30 +187,40 @@ def _cmd_start(config: Section) -> None:
     _mkdir(config_path)
     _mkdir(join(config_path, "strings/0x409"))
     _write(join(config_path, "strings/0x409/configuration"), f"Config 1: {config.otg.config}")
-    _write(join(config_path, "MaxPower"), str(config.otg.max_power))
+    _write(join(config_path, "MaxPower"), "250")
+    if config.otg.remote_wakeup:
+        # XXX: Should we use MaxPower=100 with Remote Wakeup?
+        _write(join(config_path, "bmAttributes"), "0xA0")
 
     if config.otg.devices.serial.enabled:
-        logger.info("===== Required Serial =====")
+        logger.info("===== Serial =====")
         _create_serial(gadget_path, config_path)
 
     if config.otg.devices.ethernet.enabled:
-        logger.info("===== Required Ethernet =====")
+        logger.info("===== Ethernet =====")
         _create_ethernet(gadget_path, config_path, **config.otg.devices.ethernet._unpack(ignore=["enabled"]))
 
     if config.kvmd.hid.type == "otg":
-        logger.info("===== Required HID =====")
-        _create_hid(gadget_path, config_path, 0, make_keyboard_hid())
-        _create_hid(gadget_path, config_path, 1, make_mouse_hid(
+        logger.info("===== HID-Keyboard =====")
+        _create_hid(gadget_path, config_path, 0, config.otg.remote_wakeup, make_keyboard_hid())
+        logger.info("===== HID-Mouse =====")
+        _create_hid(gadget_path, config_path, 1, config.otg.remote_wakeup, make_mouse_hid(
             absolute=config.kvmd.hid.mouse.absolute,
             horizontal_wheel=config.kvmd.hid.mouse.horizontal_wheel,
         ))
+        if config.kvmd.hid.mouse_alt.device:
+            logger.info("===== HID-Mouse-Alt =====")
+            _create_hid(gadget_path, config_path, 2, config.otg.remote_wakeup, make_mouse_hid(
+                absolute=(not config.kvmd.hid.mouse.absolute),
+                horizontal_wheel=config.kvmd.hid.mouse_alt.horizontal_wheel,
+            ))
 
     if config.kvmd.msd.type == "otg":
-        logger.info("===== Required MSD =====")
+        logger.info("===== MSD =====")
         _create_msd(gadget_path, config_path, 0, config.otg.user, **config.otg.devices.msd.default._unpack())
         if config.otg.devices.drives.enabled:
-            logger.info("===== Required MSD extra drives: %d =====", config.otg.devices.drives.count)
             for instance in range(config.otg.devices.drives.count):
+                logger.info("===== MSD Extra: %d =====", config.otg.devices.drives.count)
                 _create_msd(gadget_path, config_path, instance + 1, "root", **config.otg.devices.drives.default._unpack())
 
     logger.info("===== Preparing complete =====")
@@ -222,8 +229,8 @@ def _cmd_start(config: Section) -> None:
     _write(join(gadget_path, "UDC"), udc)
     time.sleep(config.otg.init_delay)
 
-    logger.info("Setting DWC2 bind permissions ...")
-    driver_path = f"{env.SYSFS_PREFIX}/sys/bus/platform/drivers/dwc2"
+    logger.info("Setting %s bind permissions ...", usb_driver)
+    driver_path = f"{env.SYSFS_PREFIX}/sys/bus/platform/drivers/{usb_driver}"
     _chown(join(driver_path, "bind"), config.otg.user)
     _chown(join(driver_path, "unbind"), config.otg.user)
 

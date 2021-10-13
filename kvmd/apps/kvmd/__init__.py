@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -34,7 +34,6 @@ from .. import init
 from .auth import AuthManager
 from .info import InfoManager
 from .logreader import LogReader
-from .wol import WakeOnLan
 from .ugpio import UserGpio
 from .streamer import Streamer
 from .snapshoter import Snapshoter
@@ -45,7 +44,7 @@ from .server import KvmdServer
 def main(argv: Optional[List[str]]=None) -> None:
     config = init(
         prog="kvmd",
-        description="The main Pi-KVM daemon",
+        description="The main PiKVM daemon",
         argv=argv,
         check_run=True,
         load_auth=True,
@@ -59,7 +58,7 @@ def main(argv: Optional[List[str]]=None) -> None:
     if config.kvmd.msd.type == "otg":
         msd_kwargs["gadget"] = config.otg.gadget  # XXX: Small crutch to pass gadget name to the plugin
 
-    hid_kwargs = config.kvmd.hid._unpack(ignore=["type", "keymap", "mouse_x_range", "mouse_y_range"])
+    hid_kwargs = config.kvmd.hid._unpack(ignore=["type", "keymap", "ignore_keys", "mouse_x_range", "mouse_y_range"])
     if config.kvmd.hid.type == "otg":
         hid_kwargs["udc"] = config.otg.udc  # XXX: Small crutch to pass UDC to the plugin
 
@@ -86,7 +85,6 @@ def main(argv: Optional[List[str]]=None) -> None:
         ),
         info_manager=InfoManager(global_config),
         log_reader=LogReader(),
-        wol=WakeOnLan(**config.wol._unpack()),
         user_gpio=UserGpio(config.gpio, global_config.otg.udc),
 
         hid=hid,
@@ -101,13 +99,13 @@ def main(argv: Optional[List[str]]=None) -> None:
         ),
 
         heartbeat=config.server.heartbeat,
-        sync_chunk_size=config.server.sync_chunk_size,
 
         keymap_path=config.hid.keymap,
+        ignore_keys=config.hid.ignore_keys,
         mouse_x_range=(config.hid.mouse_x_range.min, config.hid.mouse_x_range.max),
         mouse_y_range=(config.hid.mouse_y_range.min, config.hid.mouse_y_range.max),
 
         stream_forever=config.streamer.forever,
-    ).run(**config.server._unpack(ignore=["heartbeat", "sync_chunk_size"]))
+    ).run(**config.server._unpack(ignore=["heartbeat"]))
 
     get_logger(0).info("Bye-bye")

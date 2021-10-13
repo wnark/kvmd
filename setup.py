@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -67,12 +67,12 @@ def main() -> None:
 
     setup(
         name="kvmd",
-        version="2.62",
+        version="3.29",
         url="https://github.com/pikvm/kvmd",
         license="GPLv3",
         author="Maxim Devaev",
         author_email="mdevaev@gmail.com",
-        description="The main Pi-KVM daemon",
+        description="The main PiKVM daemon",
         platforms="any",
 
         packages=[
@@ -105,6 +105,8 @@ def main() -> None:
             "kvmd.apps.ipmi",
             "kvmd.apps.vnc",
             "kvmd.apps.vnc.rfb",
+            "kvmd.apps.janus",
+            "kvmd.apps.watchdog",
             "kvmd.helpers",
             "kvmd.helpers.otgmsd",
             "kvmd.helpers.otgmsd.unlock",
@@ -131,6 +133,8 @@ def main() -> None:
                 "kvmd-cleanup = kvmd.apps.cleanup:main",
                 "kvmd-ipmi = kvmd.apps.ipmi:main",
                 "kvmd-vnc = kvmd.apps.vnc:main",
+                "kvmd-janus = kvmd.apps.janus:main",
+                "kvmd-watchdog = kvmd.apps.watchdog:main",
                 "kvmd-helper-otgmsd-unlock = kvmd.helpers.otgmsd.unlock:main",
                 "kvmd-helper-otgmsd-remount = kvmd.helpers.otgmsd.remount:main",
             ],
@@ -138,7 +142,7 @@ def main() -> None:
 
         classifiers=[
             "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
-            "Development Status :: 4 - Beta",
+            "Development Status :: 5 - Production/Stable",
             "Programming Language :: Python :: 3.7",
             "Programming Language :: Python :: 3.8",
             "Programming Language :: Python :: 3.9",

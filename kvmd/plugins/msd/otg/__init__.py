@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -24,15 +24,13 @@ import os
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import time
 
 from typing import List
 from typing import Dict
 from typing import AsyncGenerator
 from typing import Optional
-
-import aiofiles
-import aiofiles.base
 
 from ....logging import get_logger
 
@@ -41,11 +39,13 @@ from ....inotify import Inotify
 
 from ....yamlconf import Option
 
+from ....validators.basic import valid_bool
+from ....validators.basic import valid_number
 from ....validators.os import valid_abs_dir
+from ....validators.os import valid_printable_filename
 from ....validators.os import valid_command
 
 from .... import aiotools
-from .... import aiofs
 
 from .. import MsdError
 from .. import MsdIsBusyError
@@ -56,6 +56,7 @@ from .. import MsdImageNotSelected
 from .. import MsdUnknownImageError
 from .. import MsdImageExistsError
 from .. import BaseMsd
+from .. import MsdImageWriter
 
 from . import fs
 from . import helpers
@@ -133,13 +134,21 @@ class _State:
 class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
     def __init__(  # pylint: disable=super-init-not-called
         self,
+        upload_chunk_size: int,
+        sync_chunk_size: int,
+
         storage_path: str,
 
         remount_cmd: List[str],
         unlock_cmd: List[str],
 
+        initial: Dict,
+
         gadget: str,  # XXX: Not from options, see /kvmd/apps/kvmd/__init__.py for details
     ) -> None:
+
+        self.__upload_chunk_size = upload_chunk_size
+        self.__sync_chunk_size = sync_chunk_size
 
         self.__storage_path = os.path.normpath(storage_path)
         self.__images_path = os.path.join(self.__storage_path, "images")
@@ -148,11 +157,13 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
         self.__remount_cmd = remount_cmd
         self.__unlock_cmd = unlock_cmd
 
+        self.__initial_image: str = initial["image"]
+        self.__initial_cdrom: bool = initial["cdrom"]
+
         self.__drive = Drive(gadget, instance=0, lun=0)
 
-        self.__new_file: Optional[aiofiles.base.AiofilesContextManager] = None
-        self.__new_file_written = 0
-        self.__new_file_tick = 0.0
+        self.__new_writer: Optional[MsdImageWriter] = None
+        self.__new_writer_tick = 0.0
 
         self.__notifier = aiotools.AioNotifier()
         self.__state = _State(self.__notifier)
@@ -165,9 +176,18 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
     def get_plugin_options(cls) -> Dict:
         sudo = ["/usr/bin/sudo", "--non-interactive"]
         return {
-            "storage":      Option("/var/lib/kvmd/msd", type=valid_abs_dir, unpack_as="storage_path"),
-            "remount_cmd":  Option([*sudo, "/usr/bin/kvmd-helper-otgmsd-remount", "{mode}"], type=valid_command),
-            "unlock_cmd":   Option([*sudo, "/usr/bin/kvmd-helper-otgmsd-unlock", "unlock"],  type=valid_command),
+            "upload_chunk_size": Option(65536,   type=functools.partial(valid_number, min=1024)),
+            "sync_chunk_size":   Option(4194304, type=functools.partial(valid_number, min=1024)),
+
+            "storage": Option("/var/lib/kvmd/msd", type=valid_abs_dir, unpack_as="storage_path"),
+
+            "remount_cmd": Option([*sudo, "/usr/bin/kvmd-helper-otgmsd-remount", "{mode}"], type=valid_command),
+            "unlock_cmd":  Option([*sudo, "/usr/bin/kvmd-helper-otgmsd-unlock", "unlock"],  type=valid_command),
+
+            "initial": {
+                "image": Option("",    type=valid_printable_filename, if_empty=""),
+                "cdrom": Option(False, type=valid_bool),
+            },
         }
 
     async def get_state(self) -> Dict:
@@ -179,11 +199,14 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
                     del storage["images"][name]["path"]
                     del storage["images"][name]["in_storage"]
 
-                storage["uploading"] = bool(self.__new_file)
-                if self.__new_file:  # При загрузке файла показываем размер вручную
+                if self.__new_writer:
+                    # При загрузке файла показываем актуальную статистику вручную
+                    storage["uploading"] = self.__new_writer.get_state()
                     space = fs.get_fs_space(self.__storage_path, fatal=False)
                     if space:
                         storage.update(dataclasses.asdict(space))
+                else:
+                    storage["uploading"] = None
 
             vd: Optional[Dict] = None
             if self.__state.vd:
@@ -228,7 +251,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
 
     @aiotools.atomic
     async def cleanup(self) -> None:
-        await self.__close_new_file()
+        await self.__close_new_writer()
 
     # =====
 
@@ -283,7 +306,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
             self.__state.vd.connected = connected
 
     @contextlib.asynccontextmanager
-    async def write_image(self, name: str) -> AsyncGenerator[None, None]:
+    async def write_image(self, name: str, size: int) -> AsyncGenerator[int, None]:
         try:
             async with self.__state._region:  # pylint: disable=protected-access
                 try:
@@ -301,15 +324,15 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
 
                         await self.__remount_storage(rw=True)
                         self.__set_image_complete(name, False)
-                        self.__new_file_written = 0
-                        self.__new_file = await aiofiles.open(path, mode="w+b", buffering=0)  # type: ignore
+
+                        self.__new_writer = await MsdImageWriter(path, size, self.__sync_chunk_size).open()
 
                     await self.__notifier.notify()
-                    yield
+                    yield self.__upload_chunk_size
                     self.__set_image_complete(name, True)
 
                 finally:
-                    await self.__close_new_file()
+                    await self.__close_new_writer()
                     try:
                         await self.__remount_storage(rw=False)
                     except Exception:
@@ -321,15 +344,14 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
             await self.__notifier.notify()
 
     async def write_image_chunk(self, chunk: bytes) -> int:
-        assert self.__new_file
-        await aiofs.afile_write_now(self.__new_file, chunk)
-        self.__new_file_written += len(chunk)
+        assert self.__new_writer
+        written = await self.__new_writer.write(chunk)
         now = time.monotonic()
-        if self.__new_file_tick + 1 < now:
+        if self.__new_writer_tick + 1 < now:
             # Это нужно для ручного оповещения о свободном пространстве на диске, см. get_state()
-            self.__new_file_tick = now
+            self.__new_writer_tick = now
             await self.__notifier.notify()
-        return self.__new_file_written
+        return written
 
     @aiotools.atomic
     async def remove(self, name: str) -> None:
@@ -356,16 +378,15 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
 
     # =====
 
-    async def __close_new_file(self) -> None:
+    async def __close_new_writer(self) -> None:
         try:
-            if self.__new_file:
+            if self.__new_writer:
                 get_logger().info("Closing new image file ...")
-                await self.__new_file.close()  # type: ignore
+                await self.__new_writer.close()
         except Exception:
-            get_logger().exception("Can't close device file")
+            get_logger().exception("Can't close image file")
         finally:
-            self.__new_file = None
-            self.__new_file_written = 0
+            self.__new_writer = None
 
     # =====
 
@@ -423,6 +444,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
                     logger.info("Probing to remount storage ...")
                     await self.__remount_storage(rw=True)
                     await self.__remount_storage(rw=False)
+                    await self.__setup_initial()
 
                 storage_state = self.__get_storage_state()
             except Exception:
@@ -447,6 +469,21 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
                         self.__state.vd.image = None
 
                     self.__state.vd.connected = False
+
+    async def __setup_initial(self) -> None:
+        if self.__initial_image:
+            logger = get_logger(0)
+            path = os.path.join(self.__images_path, self.__initial_image)
+            if os.path.exists(path):
+                logger.info("Setting up initial image %r ...", self.__initial_image)
+                try:
+                    await self.__unlock_drive()
+                    self.__drive.set_cdrom_flag(self.__initial_cdrom)
+                    self.__drive.set_image_path(path)
+                except Exception:
+                    logger.exception("Can't setup initial image: ignored")
+            else:
+                logger.error("Can't find initial image %r: ignored", self.__initial_image)
 
     # =====
 
@@ -499,7 +536,7 @@ class Plugin(BaseMsd):  # pylint: disable=too-many-instance-attributes
     def __set_image_complete(self, name: str, flag: bool) -> None:
         path = os.path.join(self.__meta_path, name + ".complete")
         if flag:
-            open(path, "w").close()
+            open(path, "w").close()  # pylint: disable=consider-using-with
         else:
             if os.path.exists(path):
                 os.remove(path)

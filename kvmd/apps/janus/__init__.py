@@ -1,6 +1,6 @@
-/*****************************************************************************
+# ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -17,54 +17,28 @@
 #    You should have received a copy of the GNU General Public License       #
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.  #
 #                                                                            #
-*****************************************************************************/
+# ========================================================================== #
 
 
-"use strict";
+from typing import List
+from typing import Optional
+
+from .. import init
+
+from .runner import JanusRunner
 
 
-import {tools, $} from "../tools.js";
-import {wm} from "../wm.js";
+# =====
+def main(argv: Optional[List[str]]=None) -> None:
+    config = init(
+        prog="kvmd-Janus",
+        description="Janus WebRTC Gateway Runner",
+        check_run=True,
+        argv=argv,
+    )[2].janus
 
-
-export function WakeOnLan() {
-	var self = this;
-
-	/************************************************************************/
-
-	var __target = {};
-
-	var __init__ = function() {
-		tools.setOnClick($("wol-wakeup-button"), __clickWakeupButton);
-	};
-
-	/************************************************************************/
-
-	self.setState = function(state) {
-		if (state) {
-			tools.featureSetEnabled($("wol"), state.enabled);
-			__target = state.target;
-		}
-		wm.setElementEnabled($("wol-wakeup-button"), (state && state.enabled));
-	};
-
-	var __clickWakeupButton = function() {
-		let msg = `
-			Are you sure to send Wake-on-LAN packet to the server?<br>
-			Target: <b>${__target.mac}</b> (${__target.ip}:${__target.port})?
-		`;
-		wm.confirm(msg).then(function(ok) {
-			if (ok) {
-				let http = tools.makeRequest("POST", "/api/wol/wakeup", function() {
-					if (http.readyState === 4) {
-						if (http.status !== 200) {
-							wm.error("Wakeup error:<br>", http.responseText);
-						}
-					}
-				});
-			}
-		});
-	};
-
-	__init__();
-}
+    JanusRunner(
+        **config.stun._unpack(),
+        **config.check._unpack(),
+        **config._unpack(ignore=["stun", "check"]),
+    ).run()

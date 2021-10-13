@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -65,7 +65,6 @@ from ... import aioproc
 from .auth import AuthManager
 from .info import InfoManager
 from .logreader import LogReader
-from .wol import WakeOnLan
 from .ugpio import UserGpio
 from .streamer import Streamer
 from .snapshoter import Snapshoter
@@ -85,7 +84,6 @@ from .api.auth import check_request_auth
 
 from .api.info import InfoApi
 from .api.log import LogApi
-from .api.wol import WolApi
 from .api.ugpio import UserGpioApi
 from .api.hid import HidApi
 from .api.atx import AtxApi
@@ -148,7 +146,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         auth_manager: AuthManager,
         info_manager: InfoManager,
         log_reader: LogReader,
-        wol: WakeOnLan,
         user_gpio: UserGpio,
 
         hid: BaseHid,
@@ -158,9 +155,9 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         snapshoter: Snapshoter,
 
         heartbeat: float,
-        sync_chunk_size: int,
 
         keymap_path: str,
+        ignore_keys: List[str],
         mouse_x_range: Tuple[int, int],
         mouse_y_range: Tuple[int, int],
 
@@ -186,7 +183,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
                 for sub in sorted(info_manager.get_subs())
             ],
             *[
-                _Component("Wake-on-LAN",  "wol_state",      wol),
                 _Component("User-GPIO",    "gpio_state",     user_gpio),
                 _Component("HID",          "hid_state",      hid),
                 _Component("ATX",          "atx_state",      atx),
@@ -195,17 +191,16 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             ],
         ]
 
-        self.__hid_api = HidApi(hid, keymap_path, mouse_x_range, mouse_y_range)  # Ugly hack to get keymaps state
+        self.__hid_api = HidApi(hid, keymap_path, ignore_keys, mouse_x_range, mouse_y_range)  # Ugly hack to get keymaps state
         self.__apis: List[object] = [
             self,
             AuthApi(auth_manager),
             InfoApi(info_manager),
             LogApi(log_reader),
-            WolApi(wol),
             UserGpioApi(user_gpio),
             self.__hid_api,
             AtxApi(atx),
-            MsdApi(msd, sync_chunk_size),
+            MsdApi(msd),
             StreamerApi(streamer),
             ExportApi(info_manager, atx, user_gpio),
             RedfishApi(info_manager, atx),
@@ -372,6 +367,8 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         for client in list(self.__ws_clients):
             await self.__remove_ws_client(client)
 
+        logger.info("On-Shutdown complete")
+
     async def __on_cleanup(self, _: aiohttp.web.Application) -> None:
         logger = get_logger(0)
         for component in self.__components:
@@ -381,6 +378,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
                     await component.cleanup()  # type: ignore
                 except Exception:
                     logger.exception("Cleanup error on %s", component.name)
+        logger.info("On-Cleanup complete")
 
     async def __send_event(self, ws: aiohttp.web.WebSocketResponse, event_type: str, event: Optional[Dict]) -> None:
         await ws.send_str(json.dumps({

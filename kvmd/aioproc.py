@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -21,6 +21,7 @@
 
 
 import os
+import signal
 import asyncio
 import asyncio.subprocess
 import logging
@@ -72,7 +73,7 @@ async def log_process(
     if stdout:
         log = (logger.info if proc.returncode == 0 else logger.error)
         for line in stdout.split("\n"):
-            log("Console: %s", line)
+            log("=> %s", line)
     return proc
 
 
@@ -81,12 +82,34 @@ async def log_stdout_infinite(proc: asyncio.subprocess.Process, logger: logging.
     async for line_bytes in proc.stdout:  # type: ignore
         line = line_bytes.decode(errors="ignore").strip()
         if line:
-            logger.info("Console: %s", line)
+            logger.info("=> %s", line)
             empty = 0
         else:
             empty += 1
             if empty == 100:  # asyncio bug
-                raise RuntimeError("asyncio process: too many empty lines")
+                raise RuntimeError("Asyncio process: too many empty lines")
+
+
+async def kill_process(proc: asyncio.subprocess.Process, wait: float, logger: logging.Logger) -> None:  # pylint: disable=no-member
+    if proc.returncode is None:
+        try:
+            proc.terminate()
+            await asyncio.sleep(wait)
+            if proc.returncode is None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    if proc.returncode is not None:
+                        raise
+            await proc.wait()
+            logger.info("Process killed: pid=%d; retcode=%d", proc.pid, proc.returncode)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            if proc.returncode is None:
+                logger.exception("Can't kill process pid=%d", proc.pid)
+            else:
+                logger.info("Process killed: pid=%d; retcode=%d", proc.pid, proc.returncode)
 
 
 def rename_process(suffix: str, prefix: str="kvmd") -> None:

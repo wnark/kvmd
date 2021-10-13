@@ -2,7 +2,7 @@
 <!--
 ==============================================================================
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -25,7 +25,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Pi-KVM Session</title>
+    <title>PiKVM Session</title>
     <link rel="apple-touch-icon" sizes="180x180" href="/share/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/share/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/share/favicon-16x16.png">
@@ -35,7 +35,6 @@
     <meta name="theme-color" content="#ffffff">
     <link rel="stylesheet" href="/share/css/vars.css">
     <link rel="stylesheet" href="/share/css/main.css">
-    <link rel="stylesheet" href="/share/css/user.css">
     <link rel="stylesheet" href="/share/css/navbar.css">
     <link rel="stylesheet" href="/share/css/window.css">
     <link rel="stylesheet" href="/share/css/modal.css">
@@ -51,6 +50,7 @@
     <link rel="stylesheet" href="/share/css/kvm/msd.css">
     <link rel="stylesheet" href="/share/css/kvm/keyboard.css">
     <link rel="stylesheet" href="/share/css/kvm/about.css">
+    <link rel="stylesheet" href="/share/css/user.css">
     <script type="module">import {main} from "/share/js/kvm/main.js";
       main();
     </script>
@@ -108,8 +108,46 @@
       </div>
       <li class="right"><a class="menu-button" href="#"><img class="led-gray" data-dont-hide-menu id="link-led" src="/share/svg/led-link.svg"><img class="led-gray" data-dont-hide-menu id="stream-led" src="/share/svg/led-stream.svg"><img class="led-gray" data-dont-hide-menu id="hid-keyboard-led" src="/share/svg/led-hid-keyboard.svg"><img class="led-gray" data-dont-hide-menu id="hid-mouse-led" src="/share/svg/led-hid-mouse.svg">System</a>
         <div class="menu" data-dont-hide-menu>
-          <div class="text"><b>Runtime settings &amp; tools<br></b><sub>Lower stream params may improve performance in a poor network</sub></div>
+          <table class="kv" style="width: calc(100% - 20px)">
+            <tr>
+              <td class="value">Runtime settings &amp; tools</td>
+              <td class="feature-disabled" id="webterm">
+                <button class="small" data-force-hide-menu data-show-window="webterm-window">&bull; Term</button>
+              </td>
+              <td>
+                <button class="small" data-force-hide-menu data-show-window="about-window">&bull; About</button>
+              </td>
+              <td>
+                <button class="small" data-force-hide-menu id="open-log-button">&bull; Log</button>
+              </td>
+              <td class="feature-disabled" id="wol">
+                <button class="gpio-button small" data-force-hide-menu id="gpio-button-__wol__" data-channel="__wol__" data-confirm="Are you sure to send Wake-on-LAN packet to the server?">&bull; WoL</button>
+              </td>
+            </tr>
+          </table>
           <hr>
+          <div class="hidden" id="stream-message-no-webrtc">
+                <div class="text">
+                  <table>
+                    <tr>
+                      <td rowspan="2"><img class="sign " src="/share/svg/warning.svg"></td>
+                      <td style="line-height:1.5"><b>WebRTC is not supported by this browser</b></td>
+                    </tr>
+                  </table>
+                </div>
+            <hr>
+          </div>
+          <div class="hidden" id="stream-message-no-h264">
+                <div class="text">
+                  <table>
+                    <tr>
+                      <td rowspan="2"><img class="sign " src="/share/svg/warning.svg"></td>
+                      <td style="line-height:1.5"><b>H.264 is not supported by this browser</b></td>
+                    </tr>
+                  </table>
+                </div>
+            <hr>
+          </div>
           <table class="kv" style="width: calc(100% - 20px)">
             <tr class="feature-disabled" id="stream-resolution">
               <td>Resolution:</td>
@@ -118,46 +156,77 @@
               </td>
             </tr>
             <tr class="feature-disabled" id="stream-quality">
-              <td>Image quality:</td>
+              <td>JPEG quality:</td>
               <td>
                 <input class="slider" disabled type="range" id="stream-quality-slider">
               </td>
-              <td class="value" id="stream-quality-value">80%</td>
+              <td class="value" id="stream-quality-value" style="min-width: 30px; max-width:30px"></td>
+            </tr>
+            <tr class="feature-disabled" id="stream-h264-bitrate">
+              <td>H.264 kbps:</td>
+              <td>
+                <input class="slider" disabled type="range" id="stream-h264-bitrate-slider">
+              </td>
+              <td class="value" id="stream-h264-bitrate-value" style="min-width: 30px; max-width:30px"></td>
             </tr>
             <tr>
               <td>Max FPS:</td>
               <td>
                 <input class="slider" disabled type="range" id="stream-desired-fps-slider">
               </td>
-              <td class="value" id="stream-desired-fps-value">0</td>
+              <td class="value" id="stream-desired-fps-value" style="min-width: 30px; max-width:30px"></td>
+            </tr>
+            <tr class="feature-disabled" id="stream-mode">
+              <td>Video <a target="_blank" href="https://github.com/pikvm/pikvm/blob/master/pages/webrtc.md">mode</a>:</td>
+              <td>
+                <div class="radio-box">
+                  <input checked type="radio" id="stream-mode-radio-mjpeg" name="stream-mode-radio" value="mjpeg">
+                  <label for="stream-mode-radio-mjpeg">MJPEG / HTTP</label>
+                  <input type="radio" id="stream-mode-radio-janus" name="stream-mode-radio" value="janus">
+                  <label for="stream-mode-radio-janus">H.264 / WebRTC</label>
+                </div>
+              </td>
             </tr>
           </table>
           <hr>
           <div class="buttons buttons-row">
-            <button class="row33" data-force-hide-menu id="show-stream-button">&bull; Show stream</button>
+            <button class="row33" data-force-hide-menu data-show-window="stream-window">&bull; Show stream</button>
             <button class="row33" disabled data-force-hide-menu id="stream-screenshot-button">&bull; Screenshot</button>
             <button class="row33" disabled id="stream-reset-button">Reset stream</button>
           </div>
           <div class="feature-disabled" id="hid-outputs">
             <hr>
             <table class="kv">
-              <tr>
-                <td>Keyboard:</td>
+              <tr class="feature-disabled" id="hid-outputs-keyboard">
+                <td>Keyboard mode:</td>
                 <td>
-                  <div class="radio-box" id="hid-outputs-keyboard"></div>
+                  <div class="radio-box" id="hid-outputs-keyboard-box"></div>
                 </td>
               </tr>
-              <tr>
-                <td>Mouse:</td>
+              <tr class="feature-disabled" id="hid-outputs-mouse">
+                <td>Mouse <a target="_blank" href="https://github.com/pikvm/pikvm/blob/master/pages/mouse.md">mode</a>:</td>
                 <td>
-                  <div class="radio-box" id="hid-outputs-mouse"></div>
+                  <div class="radio-box" id="hid-outputs-mouse-box"></div>
                 </td>
               </tr>
             </table>
           </div>
-          <div class="feature-disabled" id="hid-mouse-squash">
-            <hr>
-                <table class="kv">
+          <table class="kv">
+            <tr>
+              <td>Mouse polling rate:</td>
+              <td>
+                <input class="slider" type="range" id="hid-mouse-rate-slider">
+              </td>
+              <td class="value" id="hid-mouse-rate-value" style="min-width: 30px; max-width:30px"></td>
+            </tr>
+            <tr class="feature-disabled" id="hid-mouse-sens">
+              <td>Relative mouse sensitivity:</td>
+              <td>
+                <input class="slider" disabled type="range" id="hid-mouse-sens-slider">
+              </td>
+              <td class="value" id="hid-mouse-sens-value" style="min-width: 30px; max-width:30px"></td>
+            </tr>
+            <tr class="feature-disabled" id="hid-mouse-squash">
                   <td>Squash relative mouse moves:</td>
                   <td align="right">
                     <div class="switch-box">
@@ -165,11 +234,8 @@
                       <label for="hid-mouse-squash-switch"><span class="switch-inner"></span><span class="switch"></span></label>
                     </div>
                   </td>
-                </table>
-          </div>
-          <div class="feature-disabled" id="hid-connect">
-            <hr>
-                <table class="kv">
+            </tr>
+            <tr class="feature-disabled" id="hid-connect">
                   <td>Connect HID to Server:</td>
                   <td align="right">
                     <div class="switch-box">
@@ -177,11 +243,17 @@
                       <label for="hid-connect-switch"><span class="switch-inner"></span><span class="switch"></span></label>
                     </div>
                   </td>
-                </table>
-          </div>
-          <hr>
-          <div class="feature-disabled" id="v3-usb-breaker">
-            <table class="kv">
+            </tr>
+            <tr>
+                  <td>Mute HID input events:</td>
+                  <td align="right">
+                    <div class="switch-box">
+                      <input type="checkbox" id="hid-mute-switch">
+                      <label for="hid-mute-switch"><span class="switch-inner"></span><span class="switch"></span></label>
+                    </div>
+                  </td>
+            </tr>
+            <tr class="feature-disabled" id="v3-usb-breaker">
               <td>Connect main USB to Server:</td>
               <td align="right">
                 <div class="switch-box">
@@ -189,31 +261,30 @@
                   <label for="gpio-switch-__v3_usb_breaker__"><span class="switch-inner"></span><span class="switch"></span></label>
                 </div>
               </td>
-            </table>
-            <hr>
-          </div>
-          <div class="buttons buttons-row">
-            <button class="row50" data-force-hide-menu id="show-keyboard-button">&bull; Show keyboard</button>
-            <button class="row50" disabled id="hid-reset-button">Reset HID</button>
-          </div>
+            </tr>
+          </table>
           <hr>
           <div class="buttons buttons-row">
-            <button class="row50" data-force-hide-menu id="show-about-button">&bull; Show about</button>
-            <button class="row50" data-force-hide-menu id="open-log-button">&bull; Open log</button>
-          </div>
-          <div class="buttons feature-disabled" id="wol">
-            <hr>
-            <button disabled id="wol-wakeup-button">&bull; Wake-on-LAN server</button>
-          </div>
-          <div class="buttons feature-disabled" id="webterm">
-            <hr>
-            <button data-force-hide-menu id="show-webterm-button">&bull; Show terminal</button>
+            <button class="row50" data-force-hide-menu data-show-window="keyboard-window">&bull; Show keyboard</button>
+            <button class="row50" disabled id="hid-reset-button">Reset HID</button>
           </div>
         </div>
       </li>
       <li class="right feature-disabled" id="atx-dropdown"><a class="menu-button" href="#"><img class="led-gray" data-dont-hide-menu id="atx-power-led" src="/share/svg/led-atx-power.svg"><img class="led-gray" data-dont-hide-menu id="atx-hdd-led" src="/share/svg/led-atx-hdd.svg">ATX</a>
-        <div class="menu">
+        <div class="menu" data-dont-hide-menu>
           <div class="text"><b>Control the server's power<br></b><sub>Use the short click for ACPI shutdown</sub></div>
+          <hr>
+              <table class="kv">
+                <tr>
+                      <td>Ask click confirmation:</td>
+                      <td align="right">
+                        <div class="switch-box">
+                          <input checked type="checkbox" id="atx-ask-switch">
+                          <label for="atx-ask-switch"><span class="switch-inner"></span><span class="switch"></span></label>
+                        </div>
+                      </td>
+                </tr>
+              </table>
           <hr>
           <div class="buttons">
             <button disabled id="atx-power-button">&bull; Click Power <sup><i>short</i></sup></button>
@@ -225,7 +296,7 @@
       </li>
       <li class="right feature-disabled" id="msd-dropdown"><a class="menu-button" href="#"><img class="led-gray" data-dont-hide-menu id="msd-led" src="/share/svg/led-msd.svg">Drive</a>
         <div class="menu" data-dont-hide-menu id="msd-menu">
-          <div class="text"><b>Mass Storage Device emulator<br></b></div>
+          <div class="text"><b>Mass Storage Drive: </b><span id="msd-status"></span><br></div>
           <hr>
           <div class="hidden" id="msd-message-offline">
                 <div class="text">
@@ -280,24 +351,6 @@
                 </div>
             <hr>
           </div>
-          <div class="hidden" id="msd-message-another-user-uploads">
-                <div class="text">
-                  <table>
-                    <tr>
-                      <td rowspan="2"><img class="sign " src="/share/svg/info.svg"></td>
-                      <td style="line-height:1.5"><b>Another user uploads an image</b></td>
-                    </tr>
-                  </table>
-                </div>
-            <hr>
-          </div>
-          <table class="kv">
-            <tr>
-              <td>Status:</td>
-              <td class="value" id="msd-status"></td>
-            </tr>
-          </table>
-          <hr>
           <table class="kv msd-single-storage feature-disabled">
             <tr>
               <td>Current image:</td>
@@ -319,13 +372,13 @@
                 <select disabled id="msd-image-selector"></select>
               </td>
               <td>
-                <button disabled id="msd-remove-image">Remove</button>
+                <button disabled id="msd-remove-button">Remove</button>
               </td>
             </tr>
           </table>
-          <table class="kv msd-multi-storage feature-disabled">
-            <tr class="msd-cdrom-emulation feature-disabled">
-              <td>Drive mode:</td>
+          <table class="kv msd-cdrom-emulation feature-disabled">
+            <tr>
+              <td>Drive <a target="_blank" href="https://github.com/pikvm/pikvm/blob/master/pages/msd.md">mode</a>:</td>
               <td>
                 <div class="radio-box">
                   <input checked type="radio" id="msd-mode-radio-cdrom" name="msd-mode-radio" value="1">
@@ -343,40 +396,67 @@
             </div>
           </div>
           <hr>
-          <input class="hidden" type="file" id="msd-select-new-image-file">
           <div class="buttons buttons-row">
-            <button class="row50" disabled id="msd-select-new-image-button">Select image to upload</button>
-            <button class="row25" disabled id="msd-upload-new-image-button">Upload</button>
-            <button class="row25" disabled id="msd-abort-uploading-button">Abort</button>
+            <button class="row50" disabled id="msd-select-new-button">Select image to upload</button>
+            <button class="row25" disabled id="msd-upload-new-button">Upload</button>
+            <button class="row25" disabled id="msd-abort-new-button">Abort</button>
           </div>
-          <hr>
-          <div class="hidden" id="msd-submenu-new-image">
+          <div class="hidden" id="msd-message-another-user-uploads">
+            <hr>
+                <div class="text">
+                  <table>
+                    <tr>
+                      <td rowspan="2"><img class="sign " src="/share/svg/info.svg"></td>
+                      <td style="line-height:1.5"><b>Another user uploads an image</b></td>
+                    </tr>
+                  </table>
+                </div>
+          </div>
+          <div class="hidden" id="msd-new-sub">
+            <hr>
             <table class="kv">
               <tr>
-                <td>New image:</td>
-                <td class="value" id="msd-new-image-name"></td>
+                <td>Specify a local file:</td>
+                <td>
+                  <input type="file" id="msd-new-file">
+                </td>
               </tr>
               <tr>
-                <td>Upload size:</td>
-                <td class="value" id="msd-new-image-size"></td>
+                <td><b>Or</b> paste a URL:</td>
+                <td>
+                  <input type="text" id="msd-new-url" style="width: 100%">
+                </td>
               </tr>
             </table>
             <hr>
-            <div class="text">
-              <div class="progress" id="msd-uploading-progress"><span class="progress-value" id="msd-uploading-progress-value"></span></div>
-            </div>
-            <hr>
             <table class="kv">
               <tr>
-                <td class="value">Tip:</td>
-                <td>To speed up uploading, close the Stream window.</td>
+                <td class="value">Note:</td>
+                <td>&bull; Don't close the browser page until the upload is complete.</td>
               </tr>
               <tr>
                 <td></td>
-                <td>This will save network bandwidth.</td>
+                <td>&bull; To speed up the upload, close the stream window.</td>
               </tr>
             </table>
           </div>
+          <div class="hidden" id="msd-uploading-sub">
+            <hr>
+            <table class="kv">
+              <tr>
+                <td>New image:</td>
+                <td class="value" id="msd-uploading-name"></td>
+              </tr>
+              <tr>
+                <td>Upload size:</td>
+                <td class="value" id="msd-uploading-size"></td>
+              </tr>
+            </table>
+            <div class="text">
+              <div class="progress" id="msd-uploading-progress"><span class="progress-value" id="msd-uploading-progress-value"></span></div>
+            </div>
+          </div>
+          <hr>
           <div class="buttons buttons-row">
             <button class="row50" disabled id="msd-connect-button">Connect drive to Server</button>
             <button class="row25" disabled id="msd-disconnect-button">Disconnect</button>
@@ -384,12 +464,9 @@
           </div>
         </div>
       </li>
-      <li class="right feature-disabled" id="gpio-dropdown"><a class="menu-button" id="gpio-menu-button" href="#">GPIO</a>
-        <div class="menu" data-dont-hide-menu id="gpio-menu"></div>
-      </li>
       <li class="right"><a class="menu-button" href="#"><img class="led-gray" data-dont-hide-menu id="hid-recorder-led" src="/share/svg/led-gear.svg">Macro</a>
         <div class="menu" data-dont-hide-menu>
-          <div class="text"><b>Record and play keyboard &amp; mouse actions<br></b><sub>For security reasons, the record will not be saved on the Pi-KVM</sub></div>
+          <div class="text"><b>Record and play HID/ATX/GPIO actions<br></b><sub>For security reasons, the record will not be saved on the PiKVM</sub></div>
           <hr>
           <div class="buttons buttons-row">
             <button class="row25" disabled data-force-hide-menu id="hid-recorder-record">&bull; Rec</button>
@@ -411,13 +488,15 @@
           </table>
           <hr>
               <table class="kv">
-                <td>Infinite loop playback:</td>
-                <td align="right">
-                  <div class="switch-box">
-                    <input disabled type="checkbox" id="hid-recorder-loop-switch">
-                    <label for="hid-recorder-loop-switch"><span class="switch-inner"></span><span class="switch"></span></label>
-                  </div>
-                </td>
+                <tr>
+                      <td>Infinite loop playback:</td>
+                      <td align="right">
+                        <div class="switch-box">
+                          <input disabled type="checkbox" id="hid-recorder-loop-switch">
+                          <label for="hid-recorder-loop-switch"><span class="switch-inner"></span><span class="switch"></span></label>
+                        </div>
+                      </td>
+                </tr>
               </table>
           <hr>
           <input type="file" id="hid-recorder-new-script-file">
@@ -427,14 +506,13 @@
           </div>
         </div>
       </li>
-      <li class="right"><a class="menu-button" href="#">Shortcuts</a>
+      <li class="right"><a class="menu-button" href="#">Paste</a>
         <div class="menu" data-dont-hide-menu>
-          <div class="text"><b>Paste text as keypress sequence<br></b></div>
+          <div class="text"><b>Paste text as keypress sequence<br></b><sub>Please note that PiKVM cannot switch the keyboard layout</sub></div>
           <hr>
-          <div class="text" style="margin-right: 20px">
+          <div class="text">
             <textarea id="hid-pak-text" placeholder="Enter your text here"></textarea>
           </div>
-          <hr>
           <table class="kv">
             <tr>
               <td>
@@ -446,18 +524,22 @@
               </td>
             </tr>
           </table>
-          <hr>
               <table class="kv">
-                <td>Ask paste confirmation:</td>
-                <td align="right">
-                  <div class="switch-box">
-                    <input checked type="checkbox" id="hid-pak-ask-switch">
-                    <label for="hid-pak-ask-switch"><span class="switch-inner"></span><span class="switch"></span></label>
-                  </div>
-                </td>
+                <tr>
+                      <td>Ask paste confirmation:</td>
+                      <td align="right">
+                        <div class="switch-box">
+                          <input checked type="checkbox" id="hid-pak-ask-switch">
+                          <label for="hid-pak-ask-switch"><span class="switch-inner"></span><span class="switch"></span></label>
+                        </div>
+                      </td>
+                </tr>
               </table>
-          <hr>
-          <div class="text"></div>
+        </div>
+      </li> 
+      <li class="right"><a class="menu-button" href="#">Shortcuts</a>
+        <div class="menu" data-dont-hide-menu>
+          <div class="text"><b>Quick keyboard shortcuts<br></b><sub>Also see <i>System &rarr; Show keyboard</i></sub></div>
           <hr>
           <div class="buttons">
             <div class="buttons-row">
@@ -486,33 +568,38 @@
           </div>
           <hr>
           <div class="text">
-            &darr; Alt+SysRq+... <sup><i>linux magic
+            &darr; &bull; Alt+SysRq+... <sup><i>linux magic
             <a target="_blank" href="https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html">help</a></i></sup>
           </div>
           <hr>
           <div class="buttons">
             <div class="buttons-row">
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyR">R</button>
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyE">E</button>
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyI">I</button>
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyS">S</button>
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyU">U</button>
-              <button class="row16" data-shortcut="AltLeft PrintScreen KeyB">B</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyR" title="Turn off keyboard raw mode, set it to XLATE">R</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyE" title="Send a SIGTERM to all processes, except for init">E</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyI" title="Send a SIGKILL to all processes, except for init">I</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyS" title="Attempt to sync all mounted filesystems">S</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyU" title="Attempt to remount all mounted filesystems read-only">U</button>
+              <button class="row16" data-shortcut="AltLeft PrintScreen KeyB" title="Immediately reboot the system without syncing or unmounting your disks">B</button>
             </div>
           </div>
         </div>
       </li>
+      <li class="right feature-disabled" id="gpio-dropdown"><a class="menu-button" id="gpio-menu-button" href="#">GPIO</a>
+        <div class="menu" data-dont-hide-menu id="gpio-menu"></div>
+      </li>
     </ul>
-    <div class="window window-resizable" id="stream-window" data-show-by-button="show-stream-button">
+    <div class="window window-resizable" id="stream-window">
       <div class="window-header" id="stream-window-header">
-        <div class="window-grab">Stream</div>
+        <div class="window-grab">MJPEG</div>
         <button class="window-button-close">&times;</button>
         <button class="window-button-maximize">&#9744;</button>
         <button class="window-button-original">&bull;</button>
         <button class="window-button-full-screen">&#10530;</button>
       </div>
       <div id="stream-info"></div>
-      <div class="stream-box-offline" id="stream-box"><img id="stream-image" src="/share/png/blank-stream.png"></div>
+      <div class="stream-box-offline" id="stream-box"><img id="stream-image" src="/share/png/blank-stream.png">
+        <video class="hidden" id="stream-video" autoplay playsinline muted></video>
+      </div>
       <div class="keypad" id="stream-mouse-buttons" align="center">
         <div class="keypad-block">
           <div class="keypad-row">
@@ -535,7 +622,7 @@
         </div>
       </div>
     </div>
-    <div class="window" id="keyboard-window" data-show-by-button="show-keyboard-button">
+    <div class="window" id="keyboard-window">
       <div class="window-header" id="keyboard-window-header">
         <div class="window-grab">Virtual Keyboard</div>
         <button class="window-button-close">&times;</button>
@@ -922,7 +1009,10 @@
         <div class="keypad-block">
           <div class="keypad-row">
                 <div class="empty-key"></div>
-                <div class="empty-key"></div>
+                <div class="key small" data-code="IntlYen">
+                  <div class="label">Yen
+                  </div>
+                </div>
                 <div class="key small" data-code="IntlBackslash">
                   <div class="label">N/US
                   </div>
@@ -1379,7 +1469,7 @@
         </div>
       </div>
     </div>
-    <div class="window" id="about-window" data-show-by-button="show-about-button">
+    <div class="window" id="about-window">
       <div class="window-header">
         <div class="window-grab">About</div>
         <button class="window-button-close">&times;</button>
@@ -1387,7 +1477,7 @@
       <div id="about">
         <table>
           <tr>
-            <td class="logo" valign="top"><img class="svg-gray" src="../share/svg/logo.svg" alt="Pi-KVM" height="40"></td>
+            <td class="logo" valign="top"><img class="svg-gray" src="../share/svg/logo.svg" alt="PiKVM" height="40"></td>
             <td valign="top">
               <table>
                 <tr>
@@ -1422,7 +1512,7 @@
               <input type="radio" name="about-tab-button" id="about-tab-thanks-button">
               <label for="about-tab-thanks-button">Thanks</label>
               <div class="tab">
-                <div class="code" id="about-thanks"><span class="code-comment">// These kind people donated money to the Pi-KVM project<br>
+                <div class="code" id="about-thanks"><span class="code-comment">// These kind people donated money to the PiKVM project<br>
                     // and supported the work on it. We are very grateful<br>
                     // for their help, and memorializing their names<br>
                     // is the least we can do in gratitude.<br>
@@ -1435,26 +1525,39 @@
                     <li>Aaron Heise</li>
                     <li>Accalia</li>
                     <li>Adam Goodbar</li>
+                    <li>Adam S</li>
                     <li>adipisicing</li>
                     <li>Adrian Basham</li>
+                    <li>Ahmed Syed</li>
                     <li>Alberto Bassi</li>
+                    <li>alejandro</li>
                     <li>Aleksei Brusianskii</li>
                     <li>Alessio Curri</li>
                     <li>Alex T</li>
+                    <li>Alexander Martin</li>
                     <li>Alexander Pankov</li>
                     <li>Alexandre Jablonski</li>
+                    <li>Alexey Kamenskiy</li>
+                    <li>alm0241</li>
+                    <li>Alok Anand</li>
                     <li>Alucard</li>
+                    <li>Ananthaneshan Elampoornan</li>
                     <li>Andreas Marufke</li>
                     <li>Andreas Schmid</li>
+                    <li>Andrew Melton</li>
                     <li>Andrew Reusch</li>
                     <li>Andrew Ruan</li>
                     <li>Andrzej V</li>
+                    <li>Andy Keys</li>
                     <li>Anish Patel</li>
                     <li>Anix</li>
                     <li>anonymous</li>
+                    <li>Anthony Junk</li>
                     <li>Anton Kovalenko</li>
+                    <li>Armen</li>
                     <li>Aron Green</li>
                     <li>Aron Perelman</li>
+                    <li>Artem Simonov</li>
                     <li>Arthur Woimbée</li>
                     <li>Ashlesh Chaudhari</li>
                     <li>Augusto Becciu</li>
@@ -1466,11 +1569,14 @@
                     <li>Ben Scott</li>
                     <li>Benedikt Heine</li>
                     <li>Benedikt Meier</li>
+                    <li>Benjamin Frewert</li>
                     <li>Benjamin Melancon</li>
                     <li>Benni Stauder</li>
                     <li>Bernhard Fitzke</li>
+                    <li>bikmaek</li>
                     <li>bitjoe</li>
                     <li>Bits and Bytes Computers LLC</li>
+                    <li>Bjoern Petsch</li>
                     <li>Blue Frog LLC</li>
                     <li>Bootstrapper - Programmierung erklärt</li>
                     <li>Bosco</li>
@@ -1483,12 +1589,16 @@
                     <li>Brian White</li>
                     <li>Bruno Gomes</li>
                     <li>Bryan Adams</li>
+                    <li>Bryan Montgomery</li>
                     <li>C P ELSE</li>
                     <li>Cameron Tacklind</li>
                     <li>Carl Mercier</li>
                     <li>Carl-Fredrik Johansson</li>
+                    <li>Carlos Manuel Torres</li>
                     <li>cbad536</li>
+                    <li>CHINATERA LIMITED</li>
                     <li>Chris Burton</li>
+                    <li>Chris Jackson</li>
                     <li>Chris Lewis</li>
                     <li>Chris Rizio</li>
                     <li>Christian Schlögl</li>
@@ -1498,38 +1608,52 @@
                     <li>Christoffer Lund</li>
                     <li>Christopher Hearn</li>
                     <li>Christopher Mandlbaur</li>
+                    <li>Christopher Simms</li>
                     <li>Chucktastic</li>
+                    <li>clauskj3r</li>
                     <li>Clifford Coleman</li>
                     <li>Clinton Lee Taylor</li>
                     <li>Cole Imhoff</li>
                     <li>Colin Goodman</li>
                     <li>Corey Layton</li>
                     <li>Corey Lista</li>
+                    <li>Craig Keenan</li>
                     <li>Crossfactor</li>
                     <li>ctag</li>
+                    <li>Curt Sammer</li>
                     <li>CyB0rgg</li>
                     <li>DeMentor</li>
                     <li>Desmond Whitt</li>
                     <li>Damon Meledones</li>
                     <li>Dan Berkowitz</li>
                     <li>Dan Brakeley</li>
+                    <li>Daniel Cabrera</li>
+                    <li>Daniel Davila</li>
                     <li>David</li>
                     <li>David Godibadze</li>
                     <li>David Howell</li>
+                    <li>David Irvine</li>
+                    <li>David Klinkman</li>
                     <li>David Niemann</li>
+                    <li>David Shay</li>
                     <li>David Ye</li>
                     <li>David York</li>
                     <li>Denis</li>
                     <li>Denis Andreev</li>
                     <li>Denis Yatsenko</li>
                     <li>Dennis Becker</li>
+                    <li>Dennis Joslin</li>
                     <li>Dennis Lomet</li>
                     <li>Derek Yap</li>
                     <li>Didrik</li>
+                    <li>Dimitrij Jedich</li>
                     <li>dixon wong</li>
                     <li>dizztrukshin</li>
                     <li>Dmitry Shilov</li>
+                    <li>Dominic Phoon</li>
+                    <li>Dominik Klonowski</li>
                     <li>Egan Ford</li>
+                    <li>Elani Ferri</li>
                     <li>Elliot Woo</li>
                     <li>Eric Phenix</li>
                     <li>ewook</li>
@@ -1541,14 +1665,19 @@
                     <li>Finn Ebenritter</li>
                     <li>fo0bar</li>
                     <li>Foamy</li>
+                    <li>Foli Ayivoh</li>
+                    <li>Folkert Weistra</li>
                     <li>Francisco Pavon</li>
                     <li>Frank</li>
                     <li>Frederick Czajka</li>
                     <li>Fredrik Idréus</li>
+                    <li>Garrett Dangerfield</li>
                     <li>Ge Men</li>
                     <li>Genkinger Andreas</li>
                     <li>Georgy Brodsky</li>
+                    <li>Gerald</li>
                     <li>Gernot Neuschröer</li>
+                    <li>Giovanni Fulco</li>
                     <li>GK</li>
                     <li>Glen Dragon</li>
                     <li>Greg Winterstein</li>
@@ -1557,6 +1686,8 @@
                     <li>Grey Cynic</li>
                     <li>Guido Bernacchi</li>
                     <li>Gustin Johnson</li>
+                    <li>György Tamás Vizi</li>
+                    <li>Heibunny</li>
                     <li>Heikki Tiittanen</li>
                     <li>Helio Leonardo Pinheiro e Mota</li>
                     <li>Henrik Ählström</li>
@@ -1565,32 +1696,46 @@
                     <li>HouseFPV</li>
                     <li>Icculus</li>
                     <li>iks</li>
+                    <li>Invader Monks</li>
                     <li>IT Lifesaver</li>
+                    <li>Ivan Ganev</li>
                     <li>Ivan Shapovalov</li>
                     <li>J L</li>
                     <li>Jaanus</li>
                     <li>Jackson Wyatt</li>
+                    <li>Jacob Karaffa</li>
                     <li>Jacob Morgan</li>
                     <li>James Cadd</li>
                     <li>James Cobb</li>
                     <li>James Edwards</li>
                     <li>James Kocher</li>
                     <li>James Mayhugh</li>
+                    <li>James Ye</li>
                     <li>Jamie Murphy</li>
+                    <li>Jamie Scott</li>
                     <li>Jan Niehusmann</li>
                     <li>Jari Hiltunen</li>
+                    <li>Jason Crossley</li>
                     <li>Jason Downey</li>
                     <li>Jason Toland</li>
+                    <li>Jasper Backer</li>
                     <li>Jay Davis</li>
                     <li>Jay Isaacs</li>
+                    <li>Jazereel Goh</li>
+                    <li>Jean-Daniel Croteau</li>
                     <li>Jean-Philippe Guilbault</li>
+                    <li>Jeff</li>
                     <li>Jeff Bowman</li>
                     <li>Jeff Urlwin</li>
+                    <li>Jennifer Herting</li>
                     <li>Jennifer Rowlett</li>
                     <li>Jerremy Holland</li>
+                    <li>Jerry Nall</li>
                     <li>Jim Harbin</li>
                     <li>Jimmy Stanley</li>
                     <li>Joachim Bruening</li>
+                    <li>Joe Hanson</li>
+                    <li>Joe Hinteregger</li>
                     <li>Joe Ventura</li>
                     <li>Joel Jacobs</li>
                     <li>John Andersen</li>
@@ -1599,46 +1744,68 @@
                     <li>John Kelley</li>
                     <li>John McGovern</li>
                     <li>Johnny Henson</li>
+                    <li>Jon Ferguy</li>
+                    <li>Joni Ruuskanen</li>
+                    <li>Jonathan Slenders</li>
                     <li>Jonathan Vaughn</li>
+                    <li>Joost Backer</li>
                     <li>Jordi Pakey-Rodriguez</li>
                     <li>Joris van Embden</li>
                     <li>Josh Ricker</li>
                     <li>Joshua Futterer</li>
                     <li>Jozef Riha</li>
+                    <li>Jörgen Fredriksson</li>
                     <li>Julian Forero</li>
                     <li>Julian Schneider</li>
                     <li>Justin Waters</li>
+                    <li>Kai Hadler</li>
                     <li>Karl Dunne</li>
                     <li>Keith Muggleton</li>
                     <li>Ken Lee</li>
+                    <li>Kenneth Younger III</li>
                     <li>Kenny Hui</li>
                     <li>Kevin Bajohr</li>
                     <li>Kevin Schwartz</li>
+                    <li>Kevin Sherwood</li>
                     <li>Kiran Schuler</li>
                     <li>Koloman</li>
+                    <li>Konrad Neitzel</li>
                     <li>Krzysztof Żelaśkiewicz</li>
+                    <li>Lance Ward</li>
                     <li>Larry Meaney</li>
                     <li>Lars</li>
                     <li>Lee Wilkinson</li>
                     <li>LeeNX</li>
                     <li>Leonard Feineis</li>
+                    <li>Lizardo Hernandez</li>
+                    <li>LoCascio</li>
                     <li>Lordbob75</li>
                     <li>Lothar Schweikle-Droll</li>
                     <li>Louis Müller</li>
+                    <li>LSDTripp</li>
                     <li>Luca Di Diomede</li>
                     <li>Lucio De Carli</li>
+                    <li>Lukas Bischof</li>
+                    <li>Lukas Kammerer</li>
                     <li>Lukas Söder</li>
                     <li>Malcolm Cameron</li>
+                    <li>Manfred Radeschnig</li>
+                    <li>Marc Khouri</li>
+                    <li>Marcin Wilk</li>
                     <li>Marcio Zimbres</li>
+                    <li>Marco Rossi</li>
                     <li>Marcos Wolf</li>
+                    <li>Marek Marczykowski-Górecki</li>
                     <li>Marius</li>
                     <li>Mar. Balske</li>
                     <li>Mark Gilbert</li>
+                    <li>Mark Knam</li>
                     <li>Mark Robinson</li>
                     <li>Markrosoft</li>
                     <li>Markus Halm</li>
                     <li>Markus Schicker</li>
                     <li>Markus Sobczack</li>
+                    <li>Marshall Bjerke</li>
                     <li>Marten Hermans</li>
                     <li>Martin Gasser</li>
                     <li>Martin Suelmann</li>
@@ -1657,36 +1824,52 @@
                     <li>Michael Sage</li>
                     <li>MichaelZ</li>
                     <li>Michel Bissonnette</li>
+                    <li>Mikael Wikström</li>
+                    <li>Mike Mason</li>
                     <li>Milan Múčka</li>
                     <li>Miles Davis</li>
+                    <li>Minh Tang</li>
                     <li>Moez Tharani</li>
                     <li>Morgan Helton</li>
+                    <li>Myron Weber</li>
+                    <li>Nathaniel Griswold</li>
                     <li>Nelson Lee</li>
                     <li>Nicholas Jeppson</li>
                     <li>Nicholas Kopas</li>
                     <li>Nicholas Walczak</li>
                     <li>Nick Leffler</li>
                     <li>Nick Roethemeier</li>
+                    <li>Nico Baumgartner</li>
                     <li>Nicolai Kragh-Hansen</li>
                     <li>Nihal Fernando</li>
                     <li>Nils Orbat</li>
                     <li>Nis Wechselberg</li>
                     <li>Nithin Philips</li>
                     <li>Nod Swal</li>
+                    <li>Nolan Haynes</li>
                     <li>nubbn</li>
                     <li>nybble</li>
                     <li>Oh Be</li>
                     <li>Oliver Schwarz</li>
                     <li>Oliver Zimmer</li>
                     <li>Omar El-Domeiri</li>
+                    <li>Omar Siam</li>
+                    <li>Oscar</li>
+                    <li>Patrick</li>
+                    <li>Patrick Fortin-Ducharme</li>
                     <li>Patrick McDowell</li>
                     <li>Patrick Wagstrom</li>
                     <li>Paul Bishop</li>
+                    <li>Paul De La Rosa</li>
+                    <li>Paul Pietkiewicz</li>
                     <li>Pawel Trofimiuk</li>
                     <li>Peder Madsen</li>
+                    <li>Peter</li>
                     <li>Peter Drayton</li>
                     <li>Peter Farrelly</li>
+                    <li>Peter Okelmann</li>
                     <li>Petri Heiskanen</li>
+                    <li>Phil Wu</li>
                     <li>Philip Edwards</li>
                     <li>Philip Merricks</li>
                     <li>posicat</li>
@@ -1695,11 +1878,13 @@
                     <li>Quentin Peten</li>
                     <li>Ralph Borchers</li>
                     <li>Ranc1d</li>
+                    <li>Randall D Bilbrey</li>
                     <li>Raphael Schitz</li>
                     <li>Richard Bernarts</li>
                     <li>Richard Fancher</li>
                     <li>Richard Freemantle</li>
                     <li>Richard Michael</li>
+                    <li>Rico Cantrell</li>
                     <li>Rob Tongue</li>
                     <li>Robert Klauco</li>
                     <li>Robin Gfatter</li>
@@ -1707,11 +1892,17 @@
                     <li>Rohit Priyadarshi</li>
                     <li>Rolfs 3D UG</li>
                     <li>Ronald LeBaron</li>
+                    <li>Ronald Wells</li>
+                    <li>Ronny Haldorsen</li>
                     <li>rotx</li>
                     <li>Russell Scott</li>
+                    <li>Ryan Peacock</li>
                     <li>Samed Ozoglu</li>
                     <li>Sameul Davies</li>
                     <li>Samuel Vetsch</li>
+                    <li>Samuel Walker</li>
+                    <li>Sarah Foster</li>
+                    <li>Sarten X</li>
                     <li>Satish Alwani</li>
                     <li>Scott</li>
                     <li>Scott Gagon</li>
@@ -1720,28 +1911,40 @@
                     <li>Sean</li>
                     <li>Seonwoo Lee</li>
                     <li>Sergey Lukjanov</li>
+                    <li>Seth Jennings</li>
+                    <li>Sheran Gunasekera</li>
                     <li>Shichun Chen</li>
+                    <li>Shin Guey Wong</li>
                     <li>Simon Evans</li>
                     <li>Simon Sundgaard</li>
                     <li>Simplistic Realities</li>
+                    <li>Solve Technology</li>
                     <li>srepac</li>
                     <li>Stefan Bautz</li>
                     <li>Stefan Müller</li>
                     <li>Stefan Stemmer</li>
+                    <li>Stefan Vaillant</li>
                     <li>Stephan Schmidt</li>
+                    <li>Stephen Hocking</li>
+                    <li>Steve Jones</li>
                     <li>Steve Kerr</li>
                     <li>Steve Ovens</li>
                     <li>Steve Stringham</li>
                     <li>Steven Richter</li>
+                    <li>Stratagem Solutions Ltd</li>
+                    <li>Sven Breckler</li>
                     <li>sudo34</li>
+                    <li>Tango_Echo_Alpha</li>
                     <li>Tarlak Desaydrone</li>
                     <li>TechBear</li>
                     <li>Ted</li>
                     <li>Tejun Heo</li>
+                    <li>TheSnowedOne</li>
                     <li>TheTechGiant</li>
                     <li>Thomas Hagenmaier</li>
                     <li>Thomas Price</li>
                     <li>Thomas Søfteland</li>
+                    <li>Tim Lenz</li>
                     <li>Tim Wilkinson</li>
                     <li>Timo Brinkmann</li>
                     <li>Timothee Besset</li>
@@ -1750,17 +1953,21 @@
                     <li>Tom York</li>
                     <li>Tomas Kuchta</li>
                     <li>Tomáš hrubý</li>
+                    <li>Torsten Droste</li>
                     <li>Tristan Schoening</li>
                     <li>Truman Kilen</li>
                     <li>turbochris</li>
+                    <li>tutanak</li>
                     <li>Tyler</li>
                     <li>Udo Schroeter</li>
                     <li>Uli Fahrer</li>
                     <li>Vasily Lazarev</li>
+                    <li>Vidru Eduard</li>
                     <li>Vicente Salvador Cubedo</li>
                     <li>Viktor Aschenbrenner</li>
                     <li>Viktor Ekmark</li>
                     <li>Walter_Ego</li>
+                    <li>Will Froning</li>
                     <li>William Hooper</li>
                     <li>William Stearns</li>
                     <li>Yethal</li>
@@ -1770,18 +1977,19 @@
                     <li>YURI LEE</li>
                     <li>Yurii Ostapchuk</li>
                     <li>zgen</li>
+                    <li>Zoltan Magyari</li>
                     <li>Zsombor Vari</li>
                   </ul>
                 </div>
               </div>
         </div><br>
         <p class="text">
-          Full documentation, source code, hardware schematics and legal information
+          Full documentation, the source code, and the legal information
           can be found in our <a target="_blank" href="https://pikvm.org">official website</a>.
         </p>
       </div>
     </div>
-    <div class="window window-resizable" id="webterm-window" data-show-by-button="show-webterm-button" style="width: 640px; height: 480px">
+    <div class="window window-resizable" id="webterm-window" style="width: 640px; height: 480px">
       <div class="window-header">
         <div class="window-grab">Terminal</div>
         <button class="window-button-close">&times;</button>
@@ -1793,7 +2001,7 @@
     </div>
     <ul class="footer">
       <li class="footer-left" id="kvmd-meta-server-host"></li>
-      <li class="footer-right"><a target="_blank" href="https://pikvm.org">Pi-KVM Project</a></li>
+      <li class="footer-right"><a target="_blank" href="https://pikvm.org">PiKVM Project</a></li>
     </ul>
   </body>
 </html>

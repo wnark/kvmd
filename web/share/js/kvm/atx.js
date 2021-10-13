@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -27,7 +27,7 @@ import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
 
 
-export function Atx() {
+export function Atx(__recorder) {
 	var self = this;
 
 	/************************************************************************/
@@ -35,6 +35,8 @@ export function Atx() {
 	var __init__ = function() {
 		$("atx-power-led").title = "Power Led";
 		$("atx-hdd-led").title = "Disk Activity Led";
+
+		tools.storage.bindSimpleSwitch($("atx-ask-switch"), "atx.ask", true);
 
 		for (let args of [
 			["atx-power-button", "power", "Are you sure you want to press the power button?"],
@@ -47,7 +49,7 @@ export function Atx() {
 				Warning! This could case data loss on the server.
 			`],
 		]) {
-			tools.setOnClick($(args[0]), () => __clickButton(args[1], args[2]));
+			tools.el.setOnClick($(args[0]), () => __clickButton(args[1], args[2]));
 		}
 	};
 
@@ -56,7 +58,7 @@ export function Atx() {
 	self.setState = function(state) {
 		let buttons_enabled = false;
 		if (state) {
-			tools.featureSetEnabled($("atx-dropdown"), state.enabled);
+			tools.feature.setEnabled($("atx-dropdown"), state.enabled);
 			$("atx-power-led").className = (state.busy ? "led-yellow" : (state.leds.power ? "led-green" : "led-gray"));
 			$("atx-hdd-led").className = (state.leds.hdd ? "led-red" : "led-gray");
 			buttons_enabled = !state.busy;
@@ -65,24 +67,33 @@ export function Atx() {
 			$("atx-hdd-led").className = "led-gray";
 		}
 		for (let id of ["atx-power-button", "atx-power-button-long", "atx-reset-button"]) {
-			wm.setElementEnabled($(id), buttons_enabled);
+			tools.el.setEnabled($(id), buttons_enabled);
 		}
 	};
 
 	var __clickButton = function(button, confirm_msg) {
-		wm.confirm(confirm_msg).then(function(ok) {
-			if (ok) {
-				let http = tools.makeRequest("POST", `/api/atx/click?button=${button}`, function() {
-					if (http.readyState === 4) {
-						if (http.status === 409) {
-							wm.error("Performing another ATX operation for other client.<br>Please try again later");
-						} else if (http.status !== 200) {
-							wm.error("Click error:<br>", http.responseText);
-						}
+		let click_button = function() {
+			let http = tools.makeRequest("POST", `/api/atx/click?button=${button}`, function() {
+				if (http.readyState === 4) {
+					if (http.status === 409) {
+						wm.error("Performing another ATX operation for other client.<br>Please try again later");
+					} else if (http.status !== 200) {
+						wm.error("Click error:<br>", http.responseText);
 					}
-				});
-			}
-		});
+				}
+			});
+			__recorder.recordAtxButtonEvent(button);
+		};
+
+		if ($("atx-ask-switch").checked) {
+			wm.confirm(confirm_msg).then(function(ok) {
+				if (ok) {
+					click_button();
+				}
+			});
+		} else {
+			click_button();
+		}
 	};
 
 	__init__();

@@ -31,29 +31,31 @@ for _variant in "${_variants[@]}"; do
 	pkgname+=(kvmd-platform-$_platform-$_board)
 done
 pkgbase=kvmd
-pkgver=2.62
+pkgver=3.29
 pkgrel=1
-pkgdesc="The main Pi-KVM daemon"
+pkgdesc="The main PiKVM daemon"
 url="https://github.com/pikvm/kvmd"
 license=(GPL)
 arch=(any)
 depends=(
-	"python>=3.9.3-1.1"
+	"python>=3.9.5-2"
 	"python<3.10"
 	python-yaml
 	"python-aiohttp>=3.7.4.post0-1.1"
 	python-aiofiles
 	python-passlib
+	python-periphery
 	python-pyserial
 	python-spidev
 	python-setproctitle
 	python-psutil
+	python-netifaces
 	python-systemd
 	python-dbus
 	python-pygments
 	python-pyghmi
 	python-pam
-	python-pillow
+	"python-pillow>=8.3.1-1"
 	python-xlib
 	python-hidapi
 	libgpiod
@@ -63,7 +65,6 @@ depends=(
 	openssl
 	platformio
 	avrdude-svn
-	wiringpi
 	make
 	patch
 	sudo
@@ -71,15 +72,16 @@ depends=(
 	iproute2
 	dnsmasq
 	ipmitool
+	"janus-gateway-pikvm>=0.11.2-7"
 	"raspberrypi-io-access>=0.5"
-	"ustreamer>=3.20"
+	"ustreamer>=4.4"
+
+	# Systemd UDEV bug
+	"systemd>=248.3-2"
 
 	# Avoid dhcpcd stack trace
 	dhclient
 	netctl
-
-	# Broken pillow dependency
-	libraqm
 )
 conflicts=(
 	python-pikvm
@@ -92,6 +94,7 @@ backup=(
 	etc/kvmd/{override,logging,auth,meta}.yaml
 	etc/kvmd/{ht,ipmi,vnc}passwd
 	etc/kvmd/nginx/{kvmd.ctx-{http,server},loc-{login,nocache,proxy,websocket},mime-types,ssl,nginx}.conf
+	etc/kvmd/janus/janus{,.plugin.ustreamer,.transport.websockets}.jcfg
 	etc/kvmd/web.css
 )
 
@@ -135,6 +138,10 @@ package_kvmd() {
 	install -Dm444 -t "$pkgdir/etc/kvmd/nginx" "$_cfg_default/nginx"/*.conf
 	chmod 644 "$pkgdir/etc/kvmd/nginx/nginx.conf"
 
+	mkdir -p "$pkgdir/etc/kvmd/janus"
+	chmod 755 "$pkgdir/etc/kvmd/janus"
+	install -Dm444 -t "$pkgdir/etc/kvmd/janus" "$_cfg_default/janus"/*.jcfg
+
 	install -Dm644 -t "$pkgdir/etc/kvmd" "$_cfg_default/kvmd"/*.yaml
 	install -Dm600 -t "$pkgdir/etc/kvmd" "$_cfg_default/kvmd"/*passwd
 	install -Dm644 -t "$pkgdir/etc/kvmd" "$_cfg_default/kvmd"/web.css
@@ -152,7 +159,7 @@ for _variant in "${_variants[@]}"; do
 	eval "package_kvmd-platform-$_platform-$_board() {
 		cd \"kvmd-\$pkgver\"
 
-		pkgdesc=\"Pi-KVM platform configs - $_platform for $_board\"
+		pkgdesc=\"PiKVM platform configs - $_platform for $_board\"
 		depends=(kvmd=$pkgver-$pkgrel \"raspberrypi-bootloader>=20210216-1\" \"raspberrypi-bootloader-x>=20210216-1\" \"raspberrypi-firmware>=20210128-2\" \"linux-firmware>=20210221.b79d239-1\")
 
 		if [[ $_platform =~ ^.*-hdmi$ ]]; then

@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -24,12 +24,10 @@ import {tools, $, $$$} from "../tools.js";
 import {Keypad} from "../keypad.js";
 
 
-export function Keyboard(record_callback) {
+export function Keyboard(__recordWsEvent) {
 	var self = this;
 
 	/************************************************************************/
-
-	var __record_callback = record_callback;
 
 	var __ws = null;
 	var __online = true;
@@ -125,7 +123,7 @@ export function Keyboard(record_callback) {
 			}
 		} else {
 			if (is_captured) {
-				title = "Keyboard captured, Pi-KVM offline";
+				title = "Keyboard captured, PiKVM offline";
 			}
 		}
 		$("hid-keyboard-led").className = led;
@@ -149,10 +147,10 @@ export function Keyboard(record_callback) {
 			"event_type": "key",
 			"event": {"key": code, "state": state},
 		};
-		if (__ws) {
+		if (__ws && !$("hid-mute-switch").checked) {
 			__ws.send(JSON.stringify(event));
 		}
-		__record_callback(event);
+		__recordWsEvent(event);
 	};
 
 	__init__();

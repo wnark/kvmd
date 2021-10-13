@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -53,10 +53,11 @@ div.stream-box-offline::after {
 	background: radial-gradient(transparent 20%, black);
 }
 div.stream-box-mouse-enabled {
-	cursor: url("../../svg/stream-mouse-cursor.svg"), pointer;
+	cursor: url("../../svg/stream-mouse-cursor.svg") 5 5, pointer;
 }
 
-img#stream-image {
+img#stream-image,
+video#stream-video {
 	width: 100%;
 	height: 100%;
 	object-fit: contain;

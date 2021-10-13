@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -23,7 +23,8 @@
 import os
 import asyncio
 
-from typing import Optional
+from typing import Callable
+from typing import Any
 
 from ...logging import get_logger
 
@@ -32,6 +33,7 @@ from ...inotify import Inotify
 
 from ... import env
 from ... import aiotools
+from ... import usb
 
 from . import BaseUserGpioDriver
 
@@ -49,23 +51,14 @@ class Plugin(BaseUserGpioDriver):
         super().__init__(instance_name, notifier)
 
         self.__udc = udc
+        self.__driver = ""
 
-    def register_input(self, pin: int, debounce: float) -> None:
-        _ = pin
-        _ = debounce
-
-    def register_output(self, pin: int, initial: Optional[bool]) -> None:
-        _ = pin
-        _ = initial
+    @classmethod
+    def get_pin_validator(cls) -> Callable[[Any], Any]:
+        return str
 
     def prepare(self) -> None:
-        candidates = sorted(os.listdir(f"{env.SYSFS_PREFIX}/sys/class/udc"))
-        if not self.__udc:
-            if len(candidates) == 0:
-                raise RuntimeError("Can't find any UDC")
-            self.__udc = candidates[0]
-        elif self.__udc not in candidates:
-            raise RuntimeError(f"Can't find selected UDC: {self.__udc}")
+        (self.__udc, self.__driver) = usb.find_udc(self.__udc)
         get_logger().info("Using UDC %s", self.__udc)
 
     async def run(self) -> None:
@@ -97,20 +90,18 @@ class Plugin(BaseUserGpioDriver):
             except Exception:
                 logger.exception("Unexpected OTG-bind watcher error")
 
-    def cleanup(self) -> None:
-        pass
-
-    async def read(self, pin: int) -> bool:
+    async def read(self, pin: str) -> bool:
         _ = pin
         return os.path.islink(self.__get_driver_path(self.__udc))
 
-    async def write(self, pin: int, state: bool) -> None:
+    async def write(self, pin: str, state: bool) -> None:
         _ = pin
         with open(self.__get_driver_path("bind" if state else "unbind"), "w") as ctl_file:
             ctl_file.write(f"{self.__udc}\n")
 
     def __get_driver_path(self, name: str="") -> str:
-        path = f"{env.SYSFS_PREFIX}/sys/bus/platform/drivers/dwc2"
+        assert self.__driver
+        path = f"{env.SYSFS_PREFIX}/sys/bus/platform/drivers/{self.__driver}"
         return (os.path.join(path, name) if name else path)
 
     def __str__(self) -> str:

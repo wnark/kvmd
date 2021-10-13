@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -86,14 +86,14 @@ function __loadKvmdInfo() {
 				}
 
 				$("apps").innerHTML += __makeApp("logout-button", "#", "share/svg/logout.svg", "Logout");
-				tools.setOnClick($("logout-button"), __logout);
+				tools.el.setOnClick($("logout-button"), __logout);
 
 				if (info.meta !== null && info.meta.server && info.meta.server.host) {
 					$("kvmd-meta-server-host").innerHTML = info.meta.server.host;
-					document.title = `Pi-KVM Index: ${info.meta.server.host}`;
+					document.title = `PiKVM Index: ${info.meta.server.host}`;
 				} else {
 					$("kvmd-meta-server-host").innerHTML = "";
-					document.title = "Pi-KVM Index";
+					document.title = "PiKVM Index";
 				}
 			} else if (http.status === 401 || http.status === 403) {
 				document.location.href = "/login";

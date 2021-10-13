@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -21,6 +21,7 @@
 
 
 import asyncio
+import signal
 import functools
 import types
 
@@ -84,8 +85,35 @@ async def wait_infinite() -> None:
     await asyncio.get_event_loop().create_future()
 
 
-async def wait_first(*aws: Awaitable) -> Tuple[Set[asyncio.Future], Set[asyncio.Future]]:
+async def wait_first(*aws: Awaitable) -> Tuple[Set[asyncio.Task], Set[asyncio.Task]]:
     return (await asyncio.wait(list(aws), return_when=asyncio.FIRST_COMPLETED))
+
+
+# =====
+async def close_writer(writer: asyncio.StreamWriter) -> bool:
+    closing = writer.is_closing()
+    if not closing:
+        writer.transport.abort()  # type: ignore
+        writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:
+        pass
+    return (not closing)
+
+
+# =====
+def run(coro: Coroutine) -> None:
+    def sigint_handler() -> None:
+        raise KeyboardInterrupt()
+
+    def sigterm_handler() -> None:
+        raise SystemExit()
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, sigint_handler)
+    loop.add_signal_handler(signal.SIGTERM, sigterm_handler)
+    loop.run_until_complete(coro)
 
 
 # =====
@@ -99,10 +127,17 @@ class AioNotifier:
     def notify_sync(self) -> None:
         self.__queue.put_nowait(None)
 
-    async def wait(self) -> None:
-        await self.__queue.get()
+    async def wait(self, timeout: Optional[float]=None) -> None:
+        if timeout is None:
+            await self.__queue.get()
+        else:
+            try:
+                await asyncio.wait_for(self.__queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                return  # False
         while not self.__queue.empty():
             await self.__queue.get()
+        # return True
 
 
 # =====

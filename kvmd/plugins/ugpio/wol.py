@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -21,52 +21,65 @@
 
 
 import socket
+import functools
 
 from typing import Dict
+from typing import Callable
 from typing import Optional
+from typing import Any
 
 from ...logging import get_logger
 
-from ...errors import OperationError
-
 from ... import aiotools
 
+from ...yamlconf import Option
+
+from ...validators.net import valid_ip
+from ...validators.net import valid_port
+from ...validators.net import valid_mac
+
+from . import GpioDriverOfflineError
+from . import BaseUserGpioDriver
+
 
 # =====
-class WolDisabledError(OperationError):
-    def __init__(self) -> None:
-        super().__init__("WoL is disabled")
+class Plugin(BaseUserGpioDriver):  # pylint: disable=too-many-instance-attributes
+    def __init__(  # pylint: disable=super-init-not-called
+        self,
+        instance_name: str,
+        notifier: aiotools.AioNotifier,
 
+        ip: str,
+        port: int,
+        mac: str,
+    ) -> None:
 
-# =====
-class WakeOnLan:
-    def __init__(self, ip: str, port: int, mac: str) -> None:
+        super().__init__(instance_name, notifier)
+
         self.__ip = ip
         self.__port = port
         self.__mac = mac
-        self.__magic = b""
 
-        if mac:
-            assert len(mac) == 17, mac
-            self.__magic = bytes.fromhex("FF" * 6 + mac.replace(":", "") * 16)
-
-    async def get_state(self) -> Dict:
+    @classmethod
+    def get_plugin_options(cls) -> Dict:
         return {
-            "enabled": bool(self.__magic),
-            "target": {
-                "ip": self.__ip,
-                "port": self.__port,
-                "mac": self.__mac,
-            },
+            "ip":   Option("255.255.255.255", type=functools.partial(valid_ip, v6=False)),
+            "port": Option(9,  type=valid_port),
+            "mac":  Option("", type=valid_mac, if_empty=""),
         }
 
-    @aiotools.atomic
-    async def wakeup(self) -> None:
-        if not self.__magic:
-            raise WolDisabledError()
+    @classmethod
+    def get_pin_validator(cls) -> Callable[[Any], Any]:
+        return str
 
-        logger = get_logger(0)
-        logger.info("Waking up %s (%s:%s) using Wake-on-LAN ...", self.__mac, self.__ip, self.__port)
+    async def read(self, pin: str) -> bool:
+        _ = pin
+        return False
+
+    async def write(self, pin: str, state: bool) -> None:
+        _ = pin
+        if not state:
+            return
 
         sock: Optional[socket.socket] = None
         try:
@@ -74,14 +87,18 @@ class WakeOnLan:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             sock.connect((self.__ip, self.__port))
-            sock.send(self.__magic)
+            sock.send(bytes.fromhex("FF" * 6 + self.__mac.replace(":", "") * 16))
         except Exception:
-            logger.exception("Can't send Wake-on-LAN packet")
-        else:
-            logger.info("Wake-on-LAN packet sent")
+            get_logger(0).exception("Can't send Wake-on-LAN packet via %s to %s", self, self.__mac)
+            raise GpioDriverOfflineError(self)
         finally:
             if sock:
                 try:
                     sock.close()
                 except Exception:
                     pass
+
+    def __str__(self) -> str:
+        return f"WakeOnLan({self._instance_name})"
+
+    __repr__ = __str__

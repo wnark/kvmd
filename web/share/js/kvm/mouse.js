@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -27,12 +27,10 @@ import {tools, $} from "../tools.js";
 import {Keypad} from "../keypad.js";
 
 
-export function Mouse(record_callback) {
+export function Mouse(__getResolution, __recordWsEvent) {
 	var self = this;
 
 	/************************************************************************/
-
-	var __record_callback = record_callback;
 
 	var __ws = null;
 	var __online = true;
@@ -40,10 +38,12 @@ export function Mouse(record_callback) {
 
 	var __keypad = null;
 
+	var __timer = null;
 	var __current_pos = {x: 0, y: 0};
 	var __sent_pos = {x: 0, y: 0};
 	var __wheel_delta = {x: 0, y: 0};
 	var __relative_deltas = [];
+	var __relative_sens = 1.0;
 
 	var __stream_hovered = false;
 
@@ -63,7 +63,20 @@ export function Mouse(record_callback) {
 		$("stream-box").onwheel = __streamWheelHandler;
 		$("stream-box").ontouchstart = (event) => __streamTouchMoveHandler(event);
 
-		setInterval(__sendMove, 100);
+		let rate_slider = $("hid-mouse-rate-slider");
+		tools.slider.setParams(rate_slider, 10, 100, 10, 100);
+		rate_slider.oninput = rate_slider.onchange = __updateRate;
+		rate_slider.value = tools.storage.get("hid.mouse.rate", 100);
+
+		let sens_slider = $("hid-mouse-sens-slider");
+		tools.slider.setParams(sens_slider, 0.1, 1.9, 0.1, 1);
+		sens_slider.oninput = sens_slider.onchange = __updateRelativeSens;
+		sens_slider.value = tools.storage.get("hid.mouse.sens", 1.0);
+		__updateRelativeSens();
+
+		tools.storage.bindSimpleSwitch($("hid-mouse-squash-switch"), "hid.mouse.squash", true);
+
+		__updateRate(); // set __timer
 	};
 
 	/************************************************************************/
@@ -95,6 +108,22 @@ export function Mouse(record_callback) {
 
 	self.releaseAll = function() {
 		__keypad.releaseAll();
+	};
+
+	var __updateRate = function() {
+		let rate = parseInt($("hid-mouse-rate-slider").value);
+		$("hid-mouse-rate-value").innerHTML = rate;
+		tools.storage.set("hid.mouse.rate", rate);
+		if (__timer) {
+			clearInterval(__timer);
+		}
+		__timer = setInterval(__sendMove, rate);
+	};
+
+	var __updateRelativeSens = function() {
+		__relative_sens = parseFloat($("hid-mouse-sens-slider").value);
+		$("hid-mouse-sens-value").innerHTML = __relative_sens.toFixed(1);
+		tools.storage.set("hid.mouse.sens", __relative_sens);
 	};
 
 	var __streamHoveredHandler = function(hovered) {
@@ -129,7 +158,7 @@ export function Mouse(record_callback) {
 			}
 		} else {
 			if (is_captured) {
-				title = "Mouse captured, Pi-KVM offline";
+				title = "Mouse captured, PiKVM offline";
 			}
 		}
 		$("hid-mouse-led").className = led;
@@ -188,8 +217,8 @@ export function Mouse(record_callback) {
 			};
 		} else if (__isRelativeCaptured()) {
 			let delta = {
-				x: Math.min(Math.max(-127, event.movementX), 127),
-				y: Math.min(Math.max(-127, event.movementY), 127),
+				x: Math.min(Math.max(-127, Math.floor(event.movementX * __relative_sens)), 127),
+				y: Math.min(Math.max(-127, Math.floor(event.movementY * __relative_sens)), 127),
 			};
 			if (__isRelativeSquashed()) {
 				__relative_deltas.push(delta);
@@ -236,17 +265,13 @@ export function Mouse(record_callback) {
 		//   - Видим нарушение пропорций
 		// Так что теперь используются быстре рассчеты через offset*
 		// вместо getBoundingClientRect().
-		let el_image = $("stream-image");
-		let real_width = el_image.naturalWidth;
-		let real_height = el_image.naturalHeight;
-		let view_width = el_image.offsetWidth;
-		let view_height = el_image.offsetHeight;
-		let ratio = Math.min(view_width / real_width, view_height / real_height);
+		let res = __getResolution();
+		let ratio = Math.min(res.view_width / res.real_width, res.view_height / res.real_height);
 		return {
-			"x": Math.round((view_width - ratio * real_width) / 2),
-			"y": Math.round((view_height - ratio * real_height) / 2),
-			"width": Math.round(ratio * real_width),
-			"height": Math.round(ratio * real_height),
+			"x": Math.round((res.view_width - ratio * res.real_width) / 2),
+			"y": Math.round((res.view_height - ratio * res.real_height) / 2),
+			"width": Math.round(ratio * res.real_width),
+			"height": Math.round(ratio * res.real_height),
 		};
 	};
 
@@ -304,10 +329,10 @@ export function Mouse(record_callback) {
 
 	var __sendEvent = function(event_type, event) {
 		event = {"event_type": event_type, "event": event};
-		if (__ws) {
+		if (__ws && !$("hid-mute-switch").checked) {
 			__ws.send(JSON.stringify(event));
 		}
-		__record_callback(event);
+		__recordWsEvent(event);
 	};
 
 	__init__();

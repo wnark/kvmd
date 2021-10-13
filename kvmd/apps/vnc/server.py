@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2020  Maxim Devaev <mdevaev@gmail.com>                    #
 #                                                                            #
@@ -55,7 +55,6 @@ from ... import aiotools
 
 from .rfb import RfbClient
 from .rfb.stream import rfb_format_remote
-from .rfb.stream import rfb_close_writer
 from .rfb.errors import RfbError
 
 from .vncauth import VncAuthKvmdCredentials
@@ -69,7 +68,7 @@ from .render import make_text_jpeg
 class _SharedParams:
     width: int = dataclasses.field(default=800)
     height: int = dataclasses.field(default=600)
-    name: str = dataclasses.field(default="Pi-KVM")
+    name: str = dataclasses.field(default="PiKVM")
 
 
 class _Client(RfbClient):  # pylint: disable=too-many-instance-attributes
@@ -179,7 +178,7 @@ class _Client(RfbClient):  # pylint: disable=too-many-instance-attributes
                 host = None
             else:
                 if isinstance(host, str):
-                    name = f"Pi-KVM: {host}"
+                    name = f"PiKVM: {host}"
                     async with self.__lock:
                         if self._encodings.has_rename:
                             await self._send_rename(name)
@@ -487,7 +486,7 @@ class VncServer:  # pylint: disable=too-many-instance-attributes
             except Exception:
                 logger.exception("[entry] %s: Unhandled exception in client task", remote)
             finally:
-                if (await rfb_close_writer(writer)):
+                if (await aiotools.close_writer(writer)):
                     logger.info("[entry] %s: Connection is closed in an emergency", remote)
 
         self.__handle_client = handle_client

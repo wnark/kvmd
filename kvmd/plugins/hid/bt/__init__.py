@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -106,21 +106,21 @@ class Plugin(BaseHid):  # pylint: disable=too-many-instance-attributes
     @classmethod
     def get_plugin_options(cls) -> Dict:
         return {
-            "manufacturer": Option("Pi-KVM"),
+            "manufacturer": Option("PiKVM"),
             "product":      Option("HID Device"),
             "description":  Option("Bluetooth Keyboard & Mouse"),
 
-            "iface":            Option("hci0", type=valid_stripped_string_not_empty),
-            "alias":            Option("Pi-KVM HID"),
+            "iface": Option("hci0", type=valid_stripped_string_not_empty),
+            "alias": Option("PiKVM HID"),
 
-            "pairing_required": Option(True,   type=valid_bool),
-            "auth_required":    Option(False,  type=valid_bool),
-            "control_public":   Option(True,   type=valid_bool),
-            "unpair_on_close":  Option(True,   type=valid_bool),
+            "pairing_required": Option(True,  type=valid_bool),
+            "auth_required":    Option(False, type=valid_bool),
+            "control_public":   Option(True,  type=valid_bool),
+            "unpair_on_close":  Option(True,  type=valid_bool),
 
-            "max_clients":      Option(1,      type=valid_int_f1),
-            "socket_timeout":   Option(5.0,    type=valid_float_f01),
-            "select_timeout":   Option(1.0,    type=valid_float_f01),
+            "max_clients":    Option(1,   type=valid_int_f1),
+            "socket_timeout": Option(5.0, type=valid_float_f01),
+            "select_timeout": Option(1.0, type=valid_float_f01),
         }
 
     def sysprep(self) -> None:
@@ -170,7 +170,7 @@ class Plugin(BaseHid):  # pylint: disable=too-many-instance-attributes
             if self.__proc.is_alive():
                 get_logger(0).info("Stopping HID daemon ...")
                 self.__stop_event.set()
-            if self.__proc.exitcode is not None:
+            if self.__proc.is_alive() or self.__proc.exitcode is not None:
                 self.__proc.join()
 
     # =====

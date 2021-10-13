@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -27,6 +27,8 @@ from typing import Any
 
 import yaml
 import yaml.nodes
+import yaml.resolver
+import yaml.constructor
 
 from .. import tools
 
@@ -41,14 +43,32 @@ def load_yaml_file(path: str) -> Any:
             raise ValueError(f"Invalid YAML in the file {path!r}:\n{tools.efmt(err)}") from None
 
 
+# =====
 class _YamlLoader(yaml.SafeLoader):
     def __init__(self, yaml_file: IO) -> None:
         super().__init__(yaml_file)
         self.__root = os.path.dirname(yaml_file.name)
 
-    def include(self, node: yaml.nodes.Node) -> Any:
-        path = os.path.join(self.__root, self.construct_scalar(node))
+    def include(self, node: yaml.nodes.ScalarNode) -> Any:
+        path = os.path.join(self.__root, str(self.construct_scalar(node)))
         return load_yaml_file(path)
 
 
 _YamlLoader.add_constructor("!include", _YamlLoader.include)
+
+
+# =====
+def _disable_some_bools() -> None:
+    # https://stackoverflow.com/questions/36463531
+    resolvers = yaml.resolver.Resolver.yaml_implicit_resolvers
+    for key in "oOyYnN":
+        resolvers[key] = [
+            resolver
+            for resolver in resolvers[key]
+            if resolver[0] != "tag:yaml.org,2002:bool"
+        ]
+        if len(resolvers) == 0:
+            del resolvers[key]
+
+
+_disable_some_bools()

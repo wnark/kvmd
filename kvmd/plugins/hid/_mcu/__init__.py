@@ -1,6 +1,6 @@
 # ========================================================================== #
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -151,11 +151,11 @@ class BaseMcuHid(BaseHid, multiprocessing.Process):  # pylint: disable=too-many-
             "reset_inverted": Option(False, type=valid_bool),
             "reset_delay":    Option(0.1,   type=valid_float_f01),
 
-            "read_retries":     Option(5,      type=valid_int_f1),
-            "common_retries":   Option(5,      type=valid_int_f1),
-            "retries_delay":    Option(0.5,    type=valid_float_f01),
-            "errors_threshold": Option(5,      type=valid_int_f0),
-            "noop":             Option(False,  type=valid_bool),
+            "read_retries":     Option(5,     type=valid_int_f1),
+            "common_retries":   Option(5,     type=valid_int_f1),
+            "retries_delay":    Option(0.5,   type=valid_float_f01),
+            "errors_threshold": Option(5,     type=valid_int_f0),
+            "noop":             Option(False, type=valid_bool),
         }
 
     def sysprep(self) -> None:
@@ -179,12 +179,21 @@ class BaseMcuHid(BaseHid, multiprocessing.Process):  # pylint: disable=too-many-
 
         if outputs1 & 0b10000000:  # Dynamic
             if outputs2 & 0b00000001:  # USB
-                keyboard_outputs["available"].extend(["usb"])
+                keyboard_outputs["available"].append("usb")
                 mouse_outputs["available"].extend(["usb", "usb_rel"])
 
+            if outputs2 & 0b00000100:  # USB WIN98
+                mouse_outputs["available"].append("usb_win98")
+
             if outputs2 & 0b00000010:  # PS/2
-                keyboard_outputs["available"].extend(["ps2"])
-                mouse_outputs["available"].extend(["ps2"])
+                keyboard_outputs["available"].append("ps2")
+                mouse_outputs["available"].append("ps2")
+
+            if keyboard_outputs["available"]:
+                keyboard_outputs["available"].append("disabled")
+
+            if mouse_outputs["available"]:
+                mouse_outputs["available"].append("disabled")
 
             active_keyboard = get_active_keyboard(outputs1)
             if active_keyboard in keyboard_outputs["available"]:
@@ -230,7 +239,7 @@ class BaseMcuHid(BaseHid, multiprocessing.Process):  # pylint: disable=too-many-
         if self.is_alive():
             get_logger(0).info("Stopping HID daemon ...")
             self.__stop_event.set()
-        if self.exitcode is not None:
+        if self.is_alive() or self.exitcode is not None:
             self.join()
 
     # =====

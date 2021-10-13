@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -26,11 +26,11 @@
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
 
+import {Recorder} from "./recorder.js";
 import {Hid} from "./hid.js";
 import {Atx} from "./atx.js";
 import {Msd} from "./msd.js";
 import {Streamer} from "./stream.js";
-import {WakeOnLan} from "./wol.js";
 import {Gpio} from "./gpio.js";
 
 
@@ -44,12 +44,12 @@ export function Session() {
 	var __ping_timer = null;
 	var __missed_heartbeats = 0;
 
-	var __hid = new Hid();
-	var __atx = new Atx();
+	var __streamer = new Streamer();
+	var __recorder = new Recorder();
+	var __hid = new Hid(__streamer.getResolution, __recorder);
+	var __atx = new Atx(__recorder);
 	var __msd = new Msd();
-	var __streamer = new Streamer(__hid);
-	var __wol = new WakeOnLan();
-	var __gpio = new Gpio();
+	var __gpio = new Gpio(__recorder);
 
 	var __init__ = function() {
 		__startSession();
@@ -61,7 +61,7 @@ export function Session() {
 		if (state !== null) {
 			let text = JSON.stringify(state, undefined, 4).replace(/ /g, "&nbsp;").replace(/\n/g, "<br>");
 			$("about-meta").innerHTML = `
-				<span class="code-comment">// The Pi-KVM metadata.<br>
+				<span class="code-comment">// The PiKVM metadata.<br>
 				// You can get this JSON using handle <a target="_blank" href="/api/info?fields=meta">/api/info?fields=meta</a>.<br>
 				// In the standard configuration this data<br>
 				// is specified in the file /etc/kvmd/meta.yaml.</span><br>
@@ -70,10 +70,10 @@ export function Session() {
 			`;
 			if (state.server && state.server.host) {
 				$("kvmd-meta-server-host").innerHTML = `Server: ${state.server.host}`;
-				document.title = `Pi-KVM Session: ${state.server.host}`;
+				document.title = `PiKVM Session: ${state.server.host}`;
 			} else {
 				$("kvmd-meta-server-host").innerHTML = "";
-				document.title = "Pi-KVM Session";
+				document.title = "PiKVM Session";
 			}
 
 			// Don't use this option, it may be removed in any time
@@ -99,18 +99,18 @@ export function Session() {
 			let undervoltage = (flags.undervoltage.now || flags.undervoltage.past);
 			let freq_capped = (flags.freq_capped.now || flags.freq_capped.past);
 
-			tools.hiddenSetVisible($("hw-health-dropdown"), (undervoltage || freq_capped));
+			tools.hidden.setVisible($("hw-health-dropdown"), (undervoltage || freq_capped));
 			$("hw-health-undervoltage-led").className = (undervoltage ? (flags.undervoltage.now ? "led-red" : "led-yellow") : "hidden");
 			$("hw-health-overheating-led").className = (freq_capped ? (flags.freq_capped.now ? "led-red" : "led-yellow") : "hidden");
-			tools.hiddenSetVisible($("hw-health-message-undervoltage"), undervoltage);
-			tools.hiddenSetVisible($("hw-health-message-overheating"), freq_capped);
+			tools.hidden.setVisible($("hw-health-message-undervoltage"), undervoltage);
+			tools.hidden.setVisible($("hw-health-message-overheating"), freq_capped);
 		}
 	};
 
 	var __setExtras = function(state) {
 		let show_hook = null;
 		let close_hook = null;
-		let has_webterm = (state.webterm && state.webterm.started);
+		let has_webterm = (state.webterm && (state.webterm.enabled || state.webterm.started));
 		if (has_webterm) {
 			let path = "/" + state.webterm.path;
 			show_hook = function() {
@@ -122,9 +122,14 @@ export function Session() {
 				$("webterm-iframe").src = "";
 			};
 		}
-		tools.featureSetEnabled($("webterm"), has_webterm);
+		tools.feature.setEnabled($("webterm"), has_webterm);
 		$("webterm-window").show_hook = show_hook;
 		$("webterm-window").close_hook = close_hook;
+
+		__streamer.setJanusEnabled(
+			(state.janus && (state.janus.enabled || state.janus.started))
+			|| (state.janus_static && (state.janus_static.enabled || state.janus_static.started))
+		);
 	};
 
 	var __formatTemp = function(temp) {
@@ -203,8 +208,7 @@ export function Session() {
 		let http = tools.makeRequest("GET", "/api/auth/check", function() {
 			if (http.readyState === 4) {
 				if (http.status === 200) {
-					let proto = (location.protocol === "https:" ? "wss" : "ws");
-					__ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+					__ws = new WebSocket(`${tools.is_https ? "wss" : "ws"}://${location.host}/api/ws`);
 					__ws.onopen = __wsOpenHandler;
 					__ws.onmessage = __wsMessageHandler;
 					__ws.onerror = __wsErrorHandler;
@@ -225,6 +229,7 @@ export function Session() {
 		tools.debug("Session: socket opened:", event);
 		$("link-led").className = "led-green";
 		$("link-led").title = "Connected";
+		__recorder.setSocket(__ws);
 		__hid.setSocket(__ws);
 		__missed_heartbeats = 0;
 		__ping_timer = setInterval(__pingServer, 1000);
@@ -239,7 +244,6 @@ export function Session() {
 			case "info_hw_state": __setAboutInfoHw(data.event); break;
 			case "info_system_state": __setAboutInfoSystem(data.event); break;
 			case "info_extras_state": __setExtras(data.event); break;
-			case "wol_state": __wol.setState(data.event); break;
 			case "gpio_model_state": __gpio.setModel(data.event); break;
 			case "gpio_state": __gpio.setState(data.event); break;
 			case "hid_keymaps_state": __hid.setKeymaps(data.event); break;
@@ -271,6 +275,7 @@ export function Session() {
 
 		__gpio.setState(null);
 		__hid.setSocket(null);
+		__recorder.setSocket(null);
 		__atx.setState(null);
 		__msd.setState(null);
 		__streamer.setState(null);

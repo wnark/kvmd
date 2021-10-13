@@ -1,6 +1,6 @@
 /*****************************************************************************
 #                                                                            #
-#    KVMD - The main Pi-KVM daemon.                                          #
+#    KVMD - The main PiKVM daemon.                                           #
 #                                                                            #
 #    Copyright (C) 2018-2021  Maxim Devaev <mdevaev@gmail.com>               #
 #                                                                            #
@@ -23,11 +23,12 @@
 textarea#hid-pak-text {
 	display: block;
 	resize: none;
-	height: 60px;
-	width: 100%;
+	height: 150px;
+	width: 300px;
+	border: var(--border-default-thin);
 	border-radius: 4px;
-	color: var(--cs-window-default-fg);
-	background-color: var(--cs-window-default-bg);
+	color: var(--cs-code-default-fg);
+	background-color: var(--cs-code-default-bg);
 	-webkit-appearance:none;
 }
 
